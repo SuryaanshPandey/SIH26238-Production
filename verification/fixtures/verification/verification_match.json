@@ -1,0 +1,25 @@
+{
+  "application_id": "app_001",
+  "student_id": "stu_001",
+  "submitted_attributes": {
+    "full_name": "Asha Kumar",
+    "date_of_birth": "2005-08-14",
+    "category": "ST",
+    "institution_id": "inst_001"
+  },
+  "source_records": [
+    {
+      "source_system": "APAAR",
+      "source_reference": "apaar-rec-001",
+      "status": "FOUND",
+      "subject_id": "apaar-stu-001",
+      "attributes": {
+        "full_name": "Asha Kumar",
+        "date_of_birth": "14/08/2005",
+        "category": "ST",
+        "institution_id": "inst_001"
+      },
+      "metadata": {"fixture": "verification_match"}
+    }
+  ]
+}

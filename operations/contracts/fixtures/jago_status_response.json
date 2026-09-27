@@ -1,0 +1,14 @@
+{
+  "assistance_id": "assist_demo_001",
+  "student_id": "stu_demo_001",
+  "application_id": "app_demo_verif_01",
+  "query": "Why is my application pending?",
+  "intent": "APPLICATION_STATUS",
+  "response": "Your application (PMS-ST-2026) is currently under automated verification with state revenue and academic registers. No action is required from you at this stage.",
+  "language": "en",
+  "source_refs": [
+    "app_demo_verif_01",
+    "verif_caste_001"
+  ],
+  "generated_at": "2026-09-23T10:17:30Z"
+}

@@ -1,0 +1,8 @@
+{
+  "case_id": "case_app_001",
+  "application_id": "app_001",
+  "student_id": "stu_001",
+  "review_required": true,
+  "overall_result": "PENDING_REVIEW",
+  "purpose": "read-only verification investigation projection"
+}

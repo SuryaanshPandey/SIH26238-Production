@@ -1,0 +1,13 @@
+{
+  "deficiency_id": "def_caste_clarified_01",
+  "application_id": "app_demo_verif_01",
+  "type": "DOCUMENT_INVALID",
+  "title": "Sub-Tribe Seal Unclear",
+  "description": "The digital seal on the sub-tribe document was blurred in initial scan.",
+  "severity": "MEDIUM",
+  "status": "RESOLVED",
+  "required_action": "REUPLOAD_DOCUMENT",
+  "created_at": "2026-09-22T08:30:00Z",
+  "due_at": "2026-10-07T23:59:59Z",
+  "resolved_at": "2026-09-23T09:15:00Z"
+}

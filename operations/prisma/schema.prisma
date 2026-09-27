@@ -1,0 +1,433 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Scholarship {
+  id                    String                   @id @default(uuid())
+  scholarshipId         String                   @unique // e.g. "sch_post_matric_st"
+  schemeName            String
+  schemeCode            String                   @unique // e.g. "PMS-ST-2026"
+  schemeType            String                   // CENTRAL_SECTOR, CENTRALLY_SPONSORED
+  educationLevel        String                   @default("HIGHER_EDUCATION") // PRE_MATRIC, POST_MATRIC, HIGHER_EDUCATION, FELLOWSHIP, OVERSEAS
+  academicYear          String                   // e.g. "2026-2027"
+  status                String                   @default("ACTIVE") // ACTIVE, INACTIVE, UPCOMING, CLOSED
+  jurisdiction          String                   @default("National - Ministry of Tribal Affairs")
+  eligibilityRuleVersion String                  @default("v1.0")
+  applicationStartDate  DateTime?
+  applicationEndDate    DateTime?
+  requiredDocumentTypes String                   // JSON array of strings
+  benefitSummary        String                   // JSON object
+  applicationChannel    String                   @default("ONLINE_PORTAL")
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  sourceSystem          String                   @default("LOCAL")
+  sourceUrl             String?
+  sourceFetchedAt       DateTime?
+  externalReference     String?                  @unique
+  incomeCeiling         Float?
+  targetGroup           String                   @default("")
+  description           String                   @default("")
+  eligibilitySummary    String                   @default("")
+  sourceEvidence        String                   @default("[]")
+
+  ruleVersions          ScholarshipRuleVersion[]
+  applications          Application[]
+
+  @@index([status])
+  @@index([schemeType])
+}
+
+model ScholarshipSourceState {
+  sourceId       String   @id
+  cursor         Int      @default(0)
+  candidateCount Int      @default(0)
+  updatedAt      DateTime @updatedAt
+}
+
+model ScholarshipSourceRun {
+  id              String   @id @default(uuid())
+  sourceId        String
+  sourceName      String
+  sourceUrl       String
+  status          String
+  fetchedAt       DateTime @default(now())
+  recordsFound    Int      @default(0)
+  recordsUpserted Int      @default(0)
+  durationMs      Int      @default(0)
+  errorMessage    String?
+
+  @@index([sourceId])
+  @@index([fetchedAt])
+}
+
+model ScholarshipRuleVersion {
+  id             String            @id @default(uuid())
+  scholarshipId  String
+  version        String            // "v1.0", "v1.1"
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  isActive       Boolean           @default(true)
+  description    String?
+  createdAt      DateTime          @default(now())
+
+  scholarship    Scholarship       @relation(fields: [scholarshipId], references: [scholarshipId], onDelete: Cascade)
+  rules          ScholarshipRule[]
+
+  @@unique([scholarshipId, version])
+}
+
+model ScholarshipRule {
+  id            String                 @id @default(uuid())
+  ruleVersionId String
+  ruleCode      String                 // "CATEGORY_ST", "INCOME_MAX", "EDUCATION_LEVEL"
+  ruleName      String
+  category      String                 // "DEMOGRAPHIC", "FINANCIAL", "ACADEMIC", "DOCUMENT", "VERIFICATION"
+  conditionType String                 // "EQUALS", "LESS_THAN_OR_EQUAL", "IN_SET", "BOOLEAN"
+  parameters    String                 // JSON string of criteria parameters
+  errorMessage  String
+  createdAt     DateTime               @default(now())
+
+  ruleVersion   ScholarshipRuleVersion @relation(fields: [ruleVersionId], references: [id], onDelete: Cascade)
+
+  @@index([ruleVersionId])
+}
+
+model Application {
+  id             String                   @id @default(uuid())
+  applicationId  String                   @unique // e.g. "app_2026_001"
+  studentId      String
+  scholarshipId  String
+  academicYear   String
+  status         String                   @default("DRAFT") // DRAFT, SUBMITTED, UNDER_VERIFICATION, UNDER_REVIEW, VERIFIED, SANCTIONED, PAYMENT_PROCESSING, PAID, ACTION_REQUIRED, REJECTED, WITHDRAWN, CANCELLED
+  currentStage   String                   @default("STUDENT_ENTRY")
+  submittedAt    DateTime?
+  updatedAt      DateTime                 @updatedAt
+  institutionId  String
+  createdAt      DateTime                 @default(now())
+
+  scholarship    Scholarship              @relation(fields: [scholarshipId], references: [scholarshipId])
+  statusHistory  ApplicationStatusHistory[]
+  evaluations    EligibilityEvaluation[]
+  deficiencies   Deficiency[]
+  reviews        ReviewCase[]
+  sanction       Sanction?
+  payment        Payment?
+
+  @@index([studentId])
+  @@index([scholarshipId])
+  @@index([status])
+  @@index([academicYear])
+}
+
+model ApplicationStatusHistory {
+  id            String      @id @default(uuid())
+  applicationId String
+  fromStatus    String
+  toStatus      String
+  actorType     String      // STUDENT, INSTITUTE, REVIEWER, MINISTRY, SYSTEM, ADMIN
+  actorId       String
+  reason        String?
+  correlationId String
+  createdAt     DateTime    @default(now())
+
+  application   Application @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([correlationId])
+}
+
+model EligibilityEvaluation {
+  id                       String                  @id @default(uuid())
+  evaluationId             String                  @unique // e.g. "eval_001"
+  applicationId            String
+  scholarshipId            String
+  ruleVersion              String
+  result                   String                  // ELIGIBLE, NOT_ELIGIBLE, NEEDS_VERIFICATION
+  confidence               Float                   @default(1.0)
+  reasons                  String                  // JSON array of strings
+  failedRules              String                  // JSON array of strings
+  missingInformation       String                  // JSON array of strings
+  verificationDependencies String                  // JSON array of strings
+  evaluatedAt              DateTime                @default(now())
+
+  application              Application             @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+  ruleResults              EligibilityRuleResult[]
+
+  @@index([applicationId])
+  @@index([result])
+}
+
+model EligibilityRuleResult {
+  id             String                @id @default(uuid())
+  evaluationId   String
+  ruleCode       String
+  status         String                // SATISFIED, FAILED, MISSING_INFORMATION, NEEDS_VERIFICATION, NOT_APPLICABLE
+  passed         Boolean
+  reason         String
+  evidenceRefs   String                // JSON array of evidence reference IDs
+  createdAt      DateTime              @default(now())
+
+  evaluation     EligibilityEvaluation @relation(fields: [evaluationId], references: [evaluationId], onDelete: Cascade)
+
+  @@index([evaluationId])
+}
+
+model Deficiency {
+  id             String              @id @default(uuid())
+  deficiencyId   String              @unique // e.g. "def_001"
+  applicationId  String
+  type           String              // DOCUMENT_MISSING, DOCUMENT_INVALID, DOCUMENT_EXPIRED, DOCUMENT_MISMATCH, IDENTITY_MISMATCH, DATA_MISMATCH, etc.
+  title          String
+  description    String
+  severity       String              // LOW, MEDIUM, HIGH, CRITICAL
+  status         String              @default("OPEN") // OPEN, ACTION_REQUIRED, IN_REVIEW, RESOLVED, CLOSED, WAIVED
+  requiredAction String              // REUPLOAD_DOCUMENT, PROVIDE_INFORMATION, CLARIFICATION, etc.
+  dueAt          DateTime
+  resolvedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  application    Application         @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+  history        DeficiencyHistory[]
+
+  @@index([applicationId])
+  @@index([status])
+}
+
+model DeficiencyHistory {
+  id           String     @id @default(uuid())
+  deficiencyId String
+  action       String     // CREATED, RESOLVED, WAIVED, REOPENED, UPDATED
+  actorType    String     // REVIEWER, STUDENT, SYSTEM
+  actorId      String
+  note         String?
+  createdAt    DateTime   @default(now())
+
+  deficiency   Deficiency @relation(fields: [deficiencyId], references: [deficiencyId], onDelete: Cascade)
+
+  @@index([deficiencyId])
+}
+
+model ReviewCase {
+  id               String          @id @default(uuid())
+  reviewId         String          @unique // e.g. "rev_001"
+  applicationId    String
+  reason           String
+  severity         String          // LOW, MEDIUM, HIGH, CRITICAL
+  status           String          @default("PENDING") // PENDING, ASSIGNED, IN_REVIEW, DECIDED, ESCALATED, CLOSED
+  assignedReviewer String?
+  decision         String?         // APPROVE, REJECT, REQUEST_CORRECTION, REQUEST_CLARIFICATION, ESCALATE
+  decisionReason   String?
+  resolvedAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  application      Application     @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+  history          ReviewHistory[]
+
+  @@index([applicationId])
+  @@index([status])
+  @@index([assignedReviewer])
+}
+
+model ReviewHistory {
+  id        String     @id @default(uuid())
+  reviewId  String
+  action    String     // CREATED, ASSIGNED, STARTED, DECIDED, ESCALATED
+  actorId   String
+  note      String?
+  createdAt DateTime   @default(now())
+
+  review    ReviewCase @relation(fields: [reviewId], references: [reviewId], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
+model Sanction {
+  id            String      @id @default(uuid())
+  sanctionId    String      @unique // e.g. "sanc_001"
+  applicationId String      @unique
+  status        String      @default("NOT_READY") // NOT_READY, PENDING, APPROVED, ISSUED, REVOKED, CANCELLED
+  amount        Float
+  currency      String      @default("INR")
+  reference     String      @unique // "SANCTION-MTA-2026-XXXX"
+  sanctionedAt  DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  application   Application @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+
+  @@index([status])
+}
+
+model Payment {
+  id               String         @id @default(uuid())
+  paymentId        String         @unique // e.g. "pay_001"
+  applicationId    String         @unique
+  status           String         @default("NOT_INITIATED") // NOT_APPLICABLE, NOT_INITIATED, INITIATED, PROCESSING, SUCCESS, FAILED, RETURNED, UNKNOWN
+  amount           Float
+  currency         String         @default("INR")
+  paymentReference String         @unique // PFMS transaction ID
+  initiatedAt      DateTime?
+  completedAt      DateTime?
+  failureReason    String?
+  source           String         @default("PFMS_DBT") // PFMS_DBT, STATE_TREASURY, DIRECT_TRANSFER
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  application      Application    @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+  events           PaymentEvent[]
+
+  @@index([status])
+}
+
+model PaymentEvent {
+  id             String   @id @default(uuid())
+  paymentId      String
+  eventType      String   // INITIATED, PROCESSING, SUCCESS_CALLBACK, FAILED_CALLBACK, RETURNED_CALLBACK
+  payload        String   // JSON raw payload received from PFMS mock
+  idempotencyKey String   @unique
+  status         String
+  createdAt      DateTime @default(now())
+
+  payment        Payment  @relation(fields: [paymentId], references: [paymentId], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([idempotencyKey])
+}
+
+model Notification {
+  id            String   @id @default(uuid())
+  notificationId String  @unique // e.g. "notif_001"
+  studentId     String
+  applicationId String?
+  type          String
+  title         String
+  message       String
+  priority      String   @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
+  channel       String   @default("IN_APP") // IN_APP, PUSH, SMS, EMAIL
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([studentId])
+  @@index([isRead])
+}
+
+model BeneficiaryCandidate {
+  id                     String    @id @default(uuid())
+  candidateId            String    @unique // e.g. "cand_001"
+  studentId              String
+  potentialScholarshipId String
+  schemeName             String
+  reasonCode             String    // ENROLLED_WITHOUT_ACTIVE_BENEFIT, POTENTIAL_ELIGIBILITY_MATCH, APPLICATION_ABANDONED, BENEFIT_GAP_DETECTED
+  reason                 String
+  confidence             Float
+  status                 String    @default("PENDING_REVIEW") // CANDIDATE, PENDING_REVIEW, CONFIRMED, NOT_ELIGIBLE, ALREADY_BENEFITING, OUTREACH_COMPLETED, CLOSED
+  evidenceIds            String    // JSON array of evidence reference IDs
+  reviewNotes            String?
+  reviewedAt             DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([studentId])
+  @@index([status])
+  @@index([confidence])
+}
+
+model JagoAssistance {
+  id            String   @id @default(uuid())
+  assistanceId  String   @unique // e.g. "assist_001"
+  studentId     String
+  applicationId String?
+  query         String
+  intent        String   // SCHOLARSHIP_DISCOVERY, ELIGIBILITY, APPLICATION_STATUS, DOCUMENT_HELP, DEFICIENCY, VERIFICATION, SANCTION, PAYMENT, GENERAL_ASSISTANCE
+  response      String
+  language      String   @default("en") // "en", "hi"
+  sourceRefs    String   // JSON array of source references
+  generatedAt   DateTime @default(now())
+
+  @@index([studentId])
+  @@index([intent])
+}
+
+model AuditEvent {
+  id            String   @id @default(uuid())
+  auditEventId  String   @unique // e.g. "audit_001"
+  actorType     String   // STUDENT, INSTITUTE, REVIEWER, MINISTRY, SYSTEM, ADMIN
+  actorId       String
+  action        String
+  entityType    String   // SCHOLARSHIP, APPLICATION, DEFICIENCY, REVIEW, SANCTION, PAYMENT, JAGO, CANDIDATE
+  entityId      String
+  reason        String?
+  correlationId String
+  payload       String?  // JSON string
+  createdAt     DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([correlationId])
+  @@index([createdAt])
+}
+
+model ExternalReference {
+  id                  String   @id @default(uuid())
+  externalReferenceId String   @unique // e.g. "ext_001"
+  system              String   // NSP, DigiLocker, UDISE_PLUS, APAAR, AISHE, PFMS, STATE_SYSTEM, INSTITUTIONAL_SYSTEM
+  entityType          String
+  entityId            String
+  externalId          String
+  status              String   @default("ACTIVE") // ACTIVE, VERIFIED, STALE, DISCONNECTED
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([system, entityType, externalId])
+  @@index([entityType, entityId])
+}
+
+
+model StudentAccount {
+  id                     String   @id @default(uuid())
+  studentId              String   @unique
+  mobileNumber           String   @unique
+  email                  String?  @unique
+  passwordHash           String
+  firstName              String
+  lastName               String   @default("")
+  dateOfBirth            DateTime
+  gender                 String
+  category               String
+  subTribe               String?
+  annualFamilyIncome     Float
+  state                  String
+  stateLgdCode            String?
+  district               String
+  districtLgdCode         String?
+  pincode                String
+  institutionId          String   @default("")
+  institutionName        String   @default("")
+  institutionSourceSystem String?
+  institutionSourceReference String?
+  institutionSourceUrl   String?
+  educationLevel         String
+  courseName             String
+  currentAcademicYear    String
+  maskedAadhaar          String?
+  bankAccountMasked      String?
+  bankIfsc               String?
+  apaarToken             String?
+  digilockerIdMasked     String?
+  digilockerAccessTokenEncrypted String?
+  digilockerRefreshTokenEncrypted String?
+  digilockerTokenExpiresAt DateTime?
+  digilockerReferenceKey  String?
+  digilockerConnectedAt   DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([state])
+  @@index([category])
+}

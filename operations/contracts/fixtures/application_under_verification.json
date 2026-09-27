@@ -1,0 +1,15 @@
+{
+  "application_id": "app_demo_verif_01",
+  "student_id": "stu_demo_001",
+  "scholarship_id": "sch_post_matric_st",
+  "academic_year": "2026-2027",
+  "status": "UNDER_VERIFICATION",
+  "current_stage": "AUTOMATED_VERIFICATION",
+  "submitted_at": "2026-09-23T10:15:00Z",
+  "updated_at": "2026-09-23T10:15:30Z",
+  "institution_id": "inst_ranchi_univ_01",
+  "deficiency_ids": [],
+  "verification_ids": ["verif_caste_001", "verif_income_001"],
+  "sanction_id": null,
+  "payment_id": null
+}

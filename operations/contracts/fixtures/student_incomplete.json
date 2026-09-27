@@ -1,0 +1,22 @@
+{
+  "student_id": "stu_demo_incomplete",
+  "first_name": "Somra",
+  "last_name": "Oraon",
+  "date_of_birth": "2006-08-20",
+  "gender": "MALE",
+  "category": "ST",
+  "sub_caste_tribe": null,
+  "annual_family_income": 320000,
+  "domicile_state": "Odisha",
+  "domicile_district": null,
+  "masked_aadhaar": "XXXX-XXXX-3344",
+  "email": "somra.oraon@example.edu.in",
+  "mobile_masked": "XXXXXX9988",
+  "institution_id": "",
+  "institution_name": "",
+  "education_level": "CLASS_12",
+  "course_name": "",
+  "current_academic_year": "2026-2027",
+  "bank_account_masked": "XXXXXXXX1122",
+  "bank_ifsc": "PUNB0123400"
+}

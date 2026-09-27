@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>SIH26238</title>
+<style>
+body{margin:0;background:#f8fafc;color:#0f172a;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
+.card{max-width:360px;background:#fff;border:1px solid #e2e8f0;border-radius:24px;padding:28px;text-align:center;box-shadow:0 15px 40px rgba(15,23,42,.12)}
+.logo{width:64px;height:64px;margin:0 auto 18px;border-radius:18px;background:#0f172a;display:flex;align-items:center;justify-content:center;color:#f59e0b;font-size:30px;font-weight:800}
+h1{font-size:20px;margin:0 0 8px}p{font-size:14px;line-height:1.55;color:#64748b;margin:0 0 20px}.hint{font-size:12px;color:#94a3b8;margin-top:14px}
+button{border:0;border-radius:12px;padding:12px 18px;background:#0f172a;color:#fff;font-weight:700;font-size:14px}
+</style>
+</head>
+<body>
+<div class="card">
+<div class="logo">✓</div>
+<h1>Connection unavailable</h1>
+<p>The SIH26238 Student App is not reachable right now. Check the network connection or make sure the application server is running.</p>
+<button id="retry">Retry</button>
+<div class="hint">No application or document state is modified by this screen.</div>
+</div>
+<script>
+const u=__START_URL__;
+document.getElementById('retry').onclick=()=>location.replace(u);
+</script>
+</body>
+</html>

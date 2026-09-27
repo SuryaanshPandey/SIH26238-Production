@@ -1,0 +1,14 @@
+{
+  "candidate_id": "cand_proactive_001",
+  "student_id": "stu_ext_aishe_881",
+  "potential_scholarship_id": "sch_post_matric_st",
+  "scheme_name": "Post-Matric Scholarship for ST Students",
+  "reason_code": "ENROLLED_WITHOUT_ACTIVE_BENEFIT",
+  "reason": "Student is verified ST enrolled in B.Tech Semester 3 at NIT Jamshedpur with valid income below ₹2.5L, but has no active scholarship application.",
+  "confidence": 0.94,
+  "status": "PENDING_REVIEW",
+  "evidence_ids": ["ev_aishe_enroll_881", "ev_caste_state_881"],
+  "created_at": "2026-09-23T08:00:00Z",
+  "reviewed_at": null,
+  "review_notes": null
+}

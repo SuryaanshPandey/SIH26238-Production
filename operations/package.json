@@ -1,0 +1,48 @@
+{
+  "name": "sih26238-rijvan-operations",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SIH26238 Rijvan Module: Scholarship Operations & Intelligence (Ministry of Tribal Affairs)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:contract": "vitest run tests/contract",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "demo": "tsx scripts/demo.ts",
+    "verify": "tsx scripts/verify.ts",
+    "simulator": "tsx scripts/simulator.ts",
+    "prepare:real": "tsx scripts/prepare-real-mode.ts",
+    "predev": "prisma generate",
+    "prebuild": "prisma generate",
+    "prestart": "prisma generate",
+    "scholarship:sync": "tsx scripts/sync-scholarships.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.19.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.441.0",
+    "next": "^14.2.13",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.2",
+    "zod": "^3.23.8",
+    "aishe-institutions-list": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "dotenv": "^16.4.5",
+    "prisma": "^5.19.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}

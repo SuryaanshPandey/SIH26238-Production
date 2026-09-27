@@ -1,0 +1,12 @@
+{
+  "payment_id": "pay_pfms_succ_01",
+  "application_id": "app_demo_paid_01",
+  "status": "SUCCESS",
+  "amount": 52400,
+  "currency": "INR",
+  "payment_reference": "PFMS-TXN-2026-8841",
+  "initiated_at": "2026-09-24T15:00:00Z",
+  "completed_at": "2026-09-25T11:00:00Z",
+  "failure_reason": null,
+  "source": "PFMS_DBT"
+}

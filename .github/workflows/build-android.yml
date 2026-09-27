@@ -1,0 +1,51 @@
+name: Build SIH26238 Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      student_app_url:
+        description: "Public Student App URL, including scheme"
+        required: true
+        default: "https://REPLACE-WITH-STUDENT-APP-HOST"
+      operations_url:
+        description: "Optional Operations API base URL"
+        required: false
+        default: ""
+      verification_url:
+        description: "Optional Verification API base URL"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Install Android SDK platform/build tools
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+      - name: Build installable release APK
+        working-directory: mobile-app/android
+        run: |
+          gradle :app:assembleRelease \
+            -PstudentAppUrl="${{ inputs.student_app_url }}" \
+            -PmobileOpsUrl="${{ inputs.operations_url }}" \
+            -PmobileVerificationUrl="${{ inputs.verification_url }}" \
+            -PallowCleartext=false
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SIH26238-v25-apk
+          path: mobile-app/android/app/build/outputs/apk/release/app-release.apk

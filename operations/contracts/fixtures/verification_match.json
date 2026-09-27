@@ -1,0 +1,11 @@
+{
+  "verification_id": "verif_caste_match_001",
+  "application_id": "app_demo_verif_01",
+  "attribute_name": "CASTE_ST",
+  "status": "MATCH",
+  "confidence": 0.99,
+  "source_system": "StateRevenuePortal_Jharkhand",
+  "evidence_refs": ["doc_caste_valid_01", "ev_caste_cert_hash_99"],
+  "verification_notes": "Identity and tribe metadata fully match state gazette records.",
+  "verified_at": "2026-09-23T10:16:00Z"
+}

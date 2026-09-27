@@ -1,0 +1,11 @@
+{
+  "document_id": "doc_income_001",
+  "student_id": "stu_001",
+  "application_id": "app_001",
+  "document_type": "INCOME_CERTIFICATE",
+  "status": "AVAILABLE",
+  "source": "USER_UPLOAD",
+  "version": 1,
+  "expires_at": "2026-08-31T23:59:59Z",
+  "storage_ref": "secure://document/doc_income_001"
+}

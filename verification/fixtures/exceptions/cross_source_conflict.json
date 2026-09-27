@@ -1,0 +1,23 @@
+{
+  "application_id": "app_001",
+  "student_id": "stu_001",
+  "submitted_attributes": {"date_of_birth": "2005-08-14"},
+  "source_records": [
+    {
+      "source_system": "APAAR",
+      "source_reference": "apaar:stu_001",
+      "status": "FOUND",
+      "subject_id": "stu_001",
+      "attributes": {"date_of_birth": "2005-08-14"},
+      "retrieved_at": "2026-09-23T10:00:00Z"
+    },
+    {
+      "source_system": "INSTITUTION",
+      "source_reference": "institution:stu_001",
+      "status": "FOUND",
+      "subject_id": "stu_001",
+      "attributes": {"date_of_birth": "2005-08-15"},
+      "retrieved_at": "2026-09-23T10:05:00Z"
+    }
+  ]
+}

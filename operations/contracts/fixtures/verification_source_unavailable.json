@@ -1,0 +1,11 @@
+{
+  "verification_id": "verif_aishe_unavail_001",
+  "application_id": "app_demo_verif_01",
+  "attribute_name": "INSTITUTION_ENROLLMENT",
+  "status": "SOURCE_UNAVAILABLE",
+  "confidence": 0.0,
+  "source_system": "AISHE_MHRD_GATEWAY",
+  "evidence_refs": [],
+  "verification_notes": "Upstream AISHE API endpoint returned HTTP 503 Service Unavailable.",
+  "verified_at": "2026-09-23T10:17:00Z"
+}

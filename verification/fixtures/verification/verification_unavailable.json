@@ -1,0 +1,17 @@
+{
+  "application_id": "app_003",
+  "student_id": "stu_003",
+  "submitted_attributes": {
+    "full_name": "Ravi Das",
+    "date_of_birth": "2004-01-10"
+  },
+  "source_records": [
+    {
+      "source_system": "UIDAI",
+      "source_reference": "uidai-unavailable-003",
+      "status": "UNAVAILABLE",
+      "subject_id": "uidai-stu-003",
+      "attributes": {}
+    }
+  ]
+}

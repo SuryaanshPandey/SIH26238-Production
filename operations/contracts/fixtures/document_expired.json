@@ -1,0 +1,11 @@
+{
+  "document_id": "doc_income_expired_01",
+  "student_id": "stu_demo_001",
+  "document_type": "INCOME_CERTIFICATE",
+  "status": "EXPIRED",
+  "issuer_authority": "Tahsildar, Ranchi",
+  "issue_date": "2024-03-10T00:00:00Z",
+  "expiry_date": "2025-03-31T23:59:59Z",
+  "document_ref": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "verified_at": "2026-09-23T10:16:30Z"
+}

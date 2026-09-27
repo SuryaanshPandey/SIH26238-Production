@@ -1,0 +1,15 @@
+SIH26238 INTEGRATED PRODUCT - REAL-DATA v15
+
+Student Experience : student-app/
+Scholarship Ops    : operations/
+Documents/Verify   : verification/
+Launcher           : START.bat / START.ps1
+Health Check       : CHECK.bat / CHECK.ps1
+Shutdown           : STOP.bat / STOP.ps1
+Reset              : RESET.bat / RESET.ps1
+
+Runtime data mode  : REAL_DATA_MODE=true
+NSP source mode    : LIVE first, official SNAPSHOT fallback
+Mock providers     : test/demo mode only; never used by the real-data launcher
+
+Primary reference  : REFERENCE_FIX_V15.md

@@ -1,0 +1,15 @@
+{
+  "application_id": "app_demo_action_01",
+  "student_id": "stu_demo_001",
+  "scholarship_id": "sch_post_matric_st",
+  "academic_year": "2026-2027",
+  "status": "ACTION_REQUIRED",
+  "current_stage": "DEFICIENCY_RESOLUTION",
+  "submitted_at": "2026-09-23T10:15:00Z",
+  "updated_at": "2026-09-23T10:18:00Z",
+  "institution_id": "inst_ranchi_univ_01",
+  "deficiency_ids": ["def_income_mismatch_01"],
+  "verification_ids": ["verif_caste_001", "verif_income_mismatch_001"],
+  "sanction_id": null,
+  "payment_id": null
+}

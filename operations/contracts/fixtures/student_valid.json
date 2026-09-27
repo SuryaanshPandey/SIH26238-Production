@@ -1,0 +1,22 @@
+{
+  "student_id": "stu_demo_001",
+  "first_name": "Birsa",
+  "last_name": "Munda",
+  "date_of_birth": "2005-04-12",
+  "gender": "MALE",
+  "category": "ST",
+  "sub_caste_tribe": "Munda",
+  "annual_family_income": 180000,
+  "domicile_state": "Jharkhand",
+  "domicile_district": "Ranchi",
+  "masked_aadhaar": "XXXX-XXXX-8921",
+  "email": "birsa.munda@example.edu.in",
+  "mobile_masked": "XXXXXX4512",
+  "institution_id": "inst_ranchi_univ_01",
+  "institution_name": "Ranchi University Campus",
+  "education_level": "UNDERGRADUATE",
+  "course_name": "B.Sc Forestry & Sustainable Living",
+  "current_academic_year": "2026-2027",
+  "bank_account_masked": "XXXXXXXX9832",
+  "bank_ifsc": "SBIN0000123"
+}

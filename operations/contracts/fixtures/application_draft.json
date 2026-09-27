@@ -1,0 +1,15 @@
+{
+  "application_id": "app_demo_draft_01",
+  "student_id": "stu_demo_001",
+  "scholarship_id": "sch_post_matric_st",
+  "academic_year": "2026-2027",
+  "status": "DRAFT",
+  "current_stage": "STUDENT_ENTRY",
+  "submitted_at": null,
+  "updated_at": "2026-09-23T10:00:00Z",
+  "institution_id": "inst_ranchi_univ_01",
+  "deficiency_ids": [],
+  "verification_ids": [],
+  "sanction_id": null,
+  "payment_id": null
+}

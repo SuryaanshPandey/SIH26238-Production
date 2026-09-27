@@ -1,0 +1,22 @@
+{
+  "application_id": "app_002",
+  "student_id": "stu_002",
+  "submitted_attributes": {
+    "full_name": "Asha Kumar",
+    "date_of_birth": "2005-08-14",
+    "category": "ST"
+  },
+  "source_records": [
+    {
+      "source_system": "DIGILOCKER",
+      "source_reference": "dl-rec-002",
+      "status": "FOUND",
+      "subject_id": "dl-stu-002",
+      "attributes": {
+        "full_name": "Asha Kumar",
+        "date_of_birth": "2006-08-14",
+        "category": "ST"
+      }
+    }
+  ]
+}

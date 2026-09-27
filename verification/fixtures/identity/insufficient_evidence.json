@@ -1,0 +1,18 @@
+{
+  "student_id": "stu_001",
+  "submitted_attributes": {
+    "date_of_birth": "",
+    "mobile": null
+  },
+  "source_record": {
+    "source_system": "INSTITUTION",
+    "source_reference": "institution:stu_001",
+    "status": "FOUND",
+    "subject_id": "stu_001",
+    "attributes": {
+      "date_of_birth": null,
+      "mobile": null
+    }
+  },
+  "expected_decision": "INSUFFICIENT_EVIDENCE"
+}

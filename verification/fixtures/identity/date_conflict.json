@@ -1,0 +1,19 @@
+{
+  "student_id": "stu_001",
+  "submitted_attributes": {
+    "full_name": "Asha Kumar",
+    "date_of_birth": "2005-08-14"
+  },
+  "source_record": {
+    "source_system": "APAAR",
+    "source_reference": "apaar:stu_001",
+    "status": "FOUND",
+    "subject_id": "stu_001",
+    "attributes": {
+      "full_name": "Asha Kumar",
+      "date_of_birth": "2006-08-14"
+    }
+  },
+  "expected_decision": "MISMATCH",
+  "expected_conflict": "date_of_birth"
+}

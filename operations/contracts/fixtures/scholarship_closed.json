@@ -1,0 +1,24 @@
+{
+  "scholarship_id": "sch_overseas_st_closed",
+  "scheme_name": "National Overseas Scholarship for ST Students (Closed Session)",
+  "scheme_code": "NOS-ST-2025",
+  "scheme_type": "OVERSEAS",
+  "academic_year": "2025-2026",
+  "status": "CLOSED",
+  "jurisdiction": "National - Ministry of Tribal Affairs",
+  "eligibility_rule_version": "v1.0",
+  "application_start_date": "2025-04-01T00:00:00Z",
+  "application_end_date": "2025-06-30T23:59:59Z",
+  "required_document_types": [
+    "CASTE_CERTIFICATE",
+    "PASSPORT",
+    "FOREIGN_UNIVERSITY_OFFER",
+    "INCOME_CERTIFICATE"
+  ],
+  "benefit_summary": {
+    "maximum_amount": 2500000
+  },
+  "application_channel": "ONLINE_PORTAL",
+  "created_at": "2025-03-01T00:00:00Z",
+  "updated_at": "2025-07-01T00:00:00Z"
+}

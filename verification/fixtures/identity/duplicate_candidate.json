@@ -1,0 +1,25 @@
+{
+  "source_records": [
+    {
+      "source_system": "DIGILOCKER",
+      "source_reference": "digilocker:doc_001",
+      "status": "FOUND",
+      "subject_id": "stu_001",
+      "attributes": {
+        "full_name": "Asha Kumar",
+        "date_of_birth": "2005-08-14"
+      }
+    },
+    {
+      "source_system": "APAAR",
+      "source_reference": "apaar:stu_001",
+      "status": "FOUND",
+      "subject_id": "stu_001",
+      "attributes": {
+        "full_name": "ASHA KUMAR",
+        "date_of_birth": "14/08/2005"
+      }
+    }
+  ],
+  "expected": "DUPLICATE_CANDIDATE"
+}

@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+def studentAppUrl = (project.findProperty('studentAppUrl') ?: 'http://10.0.2.2:3000').toString().trim()
+def allowCleartext = (project.findProperty('allowCleartext') ?: 'true').toString().toBoolean()
+def mobileOpsUrl = (project.findProperty('mobileOpsUrl') ?: '').toString().trim()
+def mobileVerificationUrl = (project.findProperty('mobileVerificationUrl') ?: '').toString().trim()
+
+def quoteBuildConfig = { String value ->
+    return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+}
+
+android {
+    namespace 'in.sih26238.mobile'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId 'in.sih26238.mobile'
+        minSdk 26
+        targetSdk 37
+        versionCode 25
+        versionName '25.0.0'
+
+        buildConfigField 'String', 'STUDENT_APP_URL', quoteBuildConfig(studentAppUrl)
+        buildConfigField 'String', 'MOBILE_OPS_URL', quoteBuildConfig(mobileOpsUrl)
+        buildConfigField 'String', 'MOBILE_VERIFICATION_URL', quoteBuildConfig(mobileVerificationUrl)
+        manifestPlaceholders.allowCleartextTraffic = allowCleartext
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            // Installable by default for SIH/demo distribution. Replace with a real
+            // release keystore before Play Store/public production distribution.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/LICENSE*', 'META-INF/NOTICE*']
+        }
+    }
+}
