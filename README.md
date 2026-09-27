@@ -134,3 +134,10 @@ Use `REFRESH_SCHOLARSHIPS.ps1` to force an on-demand official-source refresh aft
 
 ### Official-source scholarship aggregator
 The scholarship layer aggregates current records from official government/statutory sources and retains source provenance. The bundled NSP catalogue is emergency continuity data only. See `OFFICIAL_SCHOLARSHIP_SOURCES.md` and `SCHOLARSHIP_AGGREGATOR_FINAL_VALIDATION.md`.
+
+## Zero-Payment Production Deployment
+
+The default `render.yaml` is now the zero-payment deployment profile. It runs the Student App, Operations API, and Verification API on Render Free and moves durable data to Supabase Postgres + Supabase Storage. See `FREE_DEPLOYMENT.md` and `supabase-free-setup.sql`.
+
+The previous persistent-disk/starter configuration is preserved as `render.paid.yaml`.
+

@@ -1,8 +1,10 @@
 services:
+  # Full Next.js student application. This stays a web service because the
+  # current application uses Next.js server-side routing/middleware.
   - type: web
-    name: sih26238-student-v25-free
+    name: sih26238-student-v25
     runtime: node
-    plan: free
+    plan: starter
     rootDir: student-app
     buildCommand: npm ci && npm run build
     startCommand: bash render-start.sh
@@ -13,18 +15,25 @@ services:
       - key: NEXT_PUBLIC_USE_LIVE_BACKEND
         value: "true"
       - key: NEXT_PUBLIC_RIJVAN_API_URL
-        value: "https://sih26238-operations-v25-free.onrender.com/api/v1"
+        value: "https://sih26238-operations-v25.onrender.com/api/v1"
       - key: NEXT_PUBLIC_VERIFICATION_API_URL
-        value: "https://sih26238-verification-v25-free.onrender.com"
+        value: "https://sih26238-verification-v25.onrender.com"
 
+  # Existing Operations service. We deliberately keep its SQLite database so
+  # the existing Prisma schema and application behavior are not rewritten.
+  # The persistent disk makes the SQLite database survive restarts/deploys.
   - type: web
-    name: sih26238-operations-v25-free
+    name: sih26238-operations-v25
     runtime: node
-    plan: free
+    plan: starter
     rootDir: operations
     buildCommand: npm ci && npm run build
     startCommand: bash render-start.sh
     healthCheckPath: /api/v1/health
+    disk:
+      name: operations-data
+      mountPath: /var/data
+      sizeGB: 10
     envVars:
       - key: NODE_VERSION
         value: "20"
@@ -35,15 +44,15 @@ services:
       - key: REAL_DATA_MODE
         value: "true"
       - key: DATABASE_URL
-        sync: false
+        value: "file:/var/data/operations.db"
       - key: STUDENT_APP_ORIGIN
-        value: "https://sih26238-student-v25-free.onrender.com"
+        value: "https://sih26238-student-v25.onrender.com"
       - key: VERIFICATION_SERVICE_URL
-        value: "https://sih26238-verification-v25-free.onrender.com"
+        value: "https://sih26238-verification-v25.onrender.com"
       - key: DOCUMENT_SERVICE_URL
-        value: "https://sih26238-verification-v25-free.onrender.com"
+        value: "https://sih26238-verification-v25.onrender.com"
       - key: DIGILOCKER_OAUTH_REDIRECT_URI
-        value: "https://sih26238-operations-v25-free.onrender.com/api/v1/government/digilocker/callback"
+        value: "https://sih26238-operations-v25.onrender.com/api/v1/government/digilocker/callback"
       - key: NSP_SOURCE_URL
         value: "https://scholarships.gov.in/All-Scholarships"
       - key: SCHOLARSHIP_ACADEMIC_YEAR
@@ -69,30 +78,31 @@ services:
       - key: JWT_SECRET
         generateValue: true
 
+  # Existing FastAPI Documents + Verification service. It already uses SQLite
+  # and local document storage, so a persistent disk preserves both state and
+  # uploaded PDFs/JPG/PNG files without introducing a new storage dependency.
   - type: web
-    name: sih26238-verification-v25-free
+    name: sih26238-verification-v25
     runtime: python
-    plan: free
+    plan: starter
     rootDir: verification
     buildCommand: pip install -r requirements.txt
     startCommand: bash render-start.sh
     healthCheckPath: /health
+    disk:
+      name: verification-data
+      mountPath: /var/data
+      sizeGB: 10
     envVars:
       - key: SIH_STORAGE_BACKEND
-        value: postgres
-      - key: DATABASE_URL
-        sync: false
-      - key: SIH_DOCUMENT_STORAGE_BACKEND
-        value: supabase
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_STORAGE_BUCKET
-        value: sih26238-documents
+        value: sqlite
+      - key: SIH_STORAGE_PATH
+        value: /var/data/sih26238.db
+      - key: SIH_DOCUMENT_STORAGE_PATH
+        value: /var/data/documents
       - key: SIH_REQUIRE_CONSENT
         value: "true"
       - key: SIH_REAL_DATA_MODE
         value: "true"
       - key: SIH_CORS_ORIGINS
-        value: "https://sih26238-student-v25-free.onrender.com"
+        value: "https://sih26238-student-v25.onrender.com"

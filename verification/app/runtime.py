@@ -89,6 +89,25 @@ class Runtime:
             self.audit_repository = AuditRepository(self.db)
             self.consent_repository = ConsentRepository(self.db)
             self.source_observation_repository = SourceObservationRepository(self.db)
+        elif backend == "postgres":
+            from app.persistence.postgres import (
+                PostgresAuditRepository,
+                PostgresConsentRepository,
+                PostgresDatabase,
+                PostgresDocumentRepository,
+                PostgresEvidenceRepository,
+                PostgresExceptionRepository,
+                PostgresSourceObservationRepository,
+                PostgresVerificationRepository,
+            )
+            self.db = PostgresDatabase(os.getenv("DATABASE_URL"))
+            self.document_repository = PostgresDocumentRepository(self.db)
+            self.verification_repository = PostgresVerificationRepository(self.db)
+            self.evidence_repository = PostgresEvidenceRepository(self.db)
+            self.exception_repository = PostgresExceptionRepository(self.db)
+            self.audit_repository = PostgresAuditRepository(self.db)
+            self.consent_repository = PostgresConsentRepository(self.db)
+            self.source_observation_repository = PostgresSourceObservationRepository(self.db)
         else:
             self.db = None
             self.document_repository = InMemoryDocumentRepository()

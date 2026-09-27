@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
@@ -432,7 +433,7 @@ def source_observations(source_reference: str):
 
 @router.get("/system/storage")
 def storage_status():
-    return envelope({"backend": runtime.backend, "persistent": runtime.backend == "sqlite"})
+    return envelope({"backend": runtime.backend, "persistent": runtime.backend in {"sqlite", "postgres"}, "document_storage": os.getenv("SIH_DOCUMENT_STORAGE_BACKEND", "local")})
 
 
 @router.post("/consents", status_code=status.HTTP_201_CREATED)
