@@ -3,6 +3,12 @@ import { RIJVAN_API_URL } from "../config";
 
 export interface ReferenceState { code: string; name: string; }
 export interface ReferenceDistrict { code: string; name: string; stateCode: string; }
+export interface PincodeSuggestion {
+  pincode: string;
+  state: string;
+  district: string;
+  officeCount: number;
+}
 export interface InstitutionSuggestion {
   institution_id: string;
   name: string;
@@ -26,6 +32,14 @@ export const referenceApi = {
     const query = new URLSearchParams({ stateCode });
     if (forceRefresh) query.set("refresh", "true");
     return apiFetch<ReferenceDistrict[]>(`${RIJVAN_API_URL}/reference/districts?${query.toString()}`);
+  },
+  pincodes(state: string, district: string, forceRefresh = false, signal?: AbortSignal) {
+    const query = new URLSearchParams({ state, district });
+    if (forceRefresh) query.set("refresh", "true");
+    return apiFetch<PincodeSuggestion[]>(
+      `${RIJVAN_API_URL}/reference/pincodes?${query.toString()}`,
+      { signal }
+    );
   },
   institutions(params: { q: string; state?: string; district?: string; limit?: number }, signal?: AbortSignal) {
     const query = new URLSearchParams({ q: params.q, limit: String(params.limit || 8) });

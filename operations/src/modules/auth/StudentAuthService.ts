@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/shared/auth/jwt";
 import { AppError } from "@/shared/errors/AppError";
+import { referenceDataService } from "@/modules/reference/ReferenceDataService";
 
 function normalizeMobile(input: string): string {
   const digits = input.replace(/\D/g, "");
@@ -96,6 +97,18 @@ export class StudentAuthService {
     if (!input.password || input.password.length < 8) throw AppError.invalidRequest("Password must be at least 8 characters long.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dob)) throw AppError.invalidRequest("Date of birth must be YYYY-MM-DD.");
 
+    const state = String(input.state || "").trim();
+    const district = String(input.district || "").trim();
+    const pincode = String(input.pincode || "").trim();
+
+    if (!state || !district) {
+      throw AppError.invalidRequest("State and district are required.");
+    }
+
+    // The browser only offers directory-backed pincodes, but the API must
+    // enforce the same rule because client validation can be bypassed.
+    await referenceDataService.validatePincode(state, district, pincode);
+
     const mobileExists = await prisma.studentAccount.findUnique({ where: { mobileNumber: mobile } });
     if (mobileExists) throw AppError.conflict("A student account already exists for this mobile number.");
     if (email) {
@@ -123,11 +136,11 @@ export class StudentAuthService {
           category: input.category,
           subTribe: input.subTribe || null,
           annualFamilyIncome: Number(input.annualIncome),
-          state: input.state,
+          state,
           stateLgdCode: input.stateCode || null,
-          district: input.district,
+          district,
           districtLgdCode: input.districtCode || null,
-          pincode: input.pincode,
+          pincode,
           institutionId: input.institutionId || "",
           institutionName: input.institutionName,
           institutionSourceSystem: input.institutionSourceSystem || null,

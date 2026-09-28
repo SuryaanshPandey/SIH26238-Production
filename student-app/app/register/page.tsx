@@ -10,7 +10,7 @@ import { ArrowLeft, ShieldCheck, CheckCircle2, LoaderCircle } from "lucide-react
 import { registerSchema, RegisterFormData } from "../../lib/validation/schemas";
 import { authApi } from "../../lib/api/auth";
 import { clearSession } from "../../lib/auth/session";
-import { referenceApi, ReferenceDistrict, ReferenceState, InstitutionSuggestion } from "../../lib/api/reference";
+import { referenceApi, ReferenceDistrict, ReferenceState, PincodeSuggestion, InstitutionSuggestion } from "../../lib/api/reference";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -45,7 +45,10 @@ export default function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [states, setStates] = useState<ReferenceState[]>([]);
   const [districts, setDistricts] = useState<ReferenceDistrict[]>([]);
+  const [pincodes, setPincodes] = useState<PincodeSuggestion[]>([]);
   const [referenceLoading, setReferenceLoading] = useState(false);
+  const [pincodeLoading, setPincodeLoading] = useState(false);
+  const [pincodeError, setPincodeError] = useState("");
   const [referenceError, setReferenceError] = useState("");
   const [referenceRetrying, setReferenceRetrying] = useState(false);
   const [institutionResults, setInstitutionResults] = useState<InstitutionSuggestion[]>([]);
@@ -73,6 +76,9 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!formData.stateCode) {
       setDistricts([]);
+      setPincodes([]);
+      setPincodeError("");
+      setPincodeLoading(false);
       return;
     }
     let active = true;
@@ -90,6 +96,65 @@ export default function RegisterPage() {
       .finally(() => { if (active) setReferenceLoading(false); });
     return () => { active = false; };
   }, [formData.stateCode]);
+
+  useEffect(() => {
+    if (
+      !formData.stateCode ||
+      !formData.districtCode ||
+      !formData.state ||
+      !formData.district
+    ) {
+      setPincodes([]);
+      setPincodeError("");
+      setPincodeLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    setPincodeLoading(true);
+    setPincodeError("");
+    setPincodes([]);
+
+    referenceApi.pincodes(
+      formData.state,
+      formData.district,
+      false,
+      controller.signal
+    )
+      .then((rows) => {
+        if (!active || controller.signal.aborted) return;
+        setPincodes(rows);
+        setPincodeError("");
+        setFormData((current) => ({
+          ...current,
+          pincode: rows.length === 1 ? rows[0].pincode : "",
+        }));
+      })
+      .catch((error) => {
+        if (!active || controller.signal.aborted) return;
+        setPincodes([]);
+        setPincodeError(
+          error instanceof Error
+            ? error.message
+            : "Postal pincode directory is unavailable."
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPincodeLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    formData.stateCode,
+    formData.districtCode,
+    formData.state,
+    formData.district,
+  ]);
 
   const institutionAbortRef = useRef<AbortController | null>(null);
 
@@ -308,6 +373,7 @@ export default function RegisterPage() {
                         state: selected?.name || "",
                         districtCode: undefined,
                         district: "",
+                        pincode: "",
                         institutionId: undefined,
                         institutionSourceSystem: undefined,
                         institutionSourceReference: undefined,
@@ -338,6 +404,7 @@ export default function RegisterPage() {
                         ...formData,
                         districtCode: e.target.value,
                         district: selected?.name || "",
+                        pincode: "",
                         institutionId: undefined,
                         institutionSourceSystem: undefined,
                         institutionSourceReference: undefined,
@@ -519,16 +586,91 @@ export default function RegisterPage() {
                 required
               />
 
-              <Input
-                label="Pincode"
-                placeholder="6-digit pincode"
-                inputMode="numeric"
-                maxLength={6}
-                value={formData.pincode}
-                onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                error={errors.pincode}
-                required
-              />
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  Pincode
+                </label>
+                <select
+                  value={formData.pincode ?? ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, pincode: e.target.value })
+                  }
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-mota-700 disabled:bg-slate-50"
+                  disabled={
+                    !formData.stateCode ||
+                    !formData.districtCode ||
+                    pincodeLoading ||
+                    pincodes.length === 0
+                  }
+                  required
+                >
+                  <option value="">
+                    {!formData.districtCode
+                      ? "Select district first"
+                      : pincodeLoading
+                        ? "Loading pincodes..."
+                        : pincodes.length === 0
+                          ? "No pincode available"
+                          : "Select pincode"}
+                  </option>
+                  {pincodes.map((row) => (
+                    <option key={row.pincode} value={row.pincode}>
+                      {row.pincode}{row.officeCount > 1 ? ` Â· ${row.officeCount} postal offices` : ""}
+                    </option>
+                  ))}
+                </select>
+
+                {pincodes.length === 1 && !pincodeLoading && !pincodeError && (
+                  <p className="text-[10px] text-emerald-700 mt-1">
+                    Pincode auto-selected from the postal directory for {formData.district}.
+                  </p>
+                )}
+
+                {pincodes.length > 1 && !pincodeLoading && !pincodeError && (
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Select one of the valid pincodes for {formData.district}.
+                  </p>
+                )}
+
+                {pincodeError && (
+                  <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-800 flex items-center justify-between gap-2">
+                    <span>{pincodeError}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-900 hover:bg-amber-100"
+                      onClick={() => {
+                        if (!formData.state || !formData.district) return;
+                        setPincodeError("");
+                        setPincodeLoading(true);
+                        referenceApi
+                          .pincodes(formData.state, formData.district, true)
+                          .then((rows) => {
+                            setPincodes(rows);
+                            setPincodeError("");
+                            setFormData((current) => ({
+                              ...current,
+                              pincode: rows.length === 1 ? rows[0].pincode : "",
+                            }));
+                          })
+                          .catch((error) =>
+                            setPincodeError(
+                              error instanceof Error
+                                ? error.message
+                                : "Postal pincode directory is unavailable."
+                            )
+                          )
+                          .finally(() => setPincodeLoading(false));
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {errors.pincode && (
+                  <p className="text-[11px] text-red-600 mt-1">{errors.pincode}</p>
+                )}
+              </div>
             </div>
 
             {/* Privacy & DigiLocker Consent */}

@@ -8,6 +8,22 @@ const UBA_INSTITUTIONS_URL = "https://unnatbharatabhiyan.gov.in/rci-details/321"
 const OGD_BASE = "https://api.data.gov.in/resource";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+const PINCODE_DIRECTORY_BASE_URL = (
+  process.env.PINCODE_DIRECTORY_BASE_URL || "https://api.pincodeapi.in/api/v1"
+).replace(/\/$/, "");
+const PINCODE_DIRECTORY_TIMEOUT_MS = Math.max(
+  3000,
+  Number(process.env.PINCODE_DIRECTORY_TIMEOUT_MS || "12000")
+);
+const PINCODE_DIRECTORY_PAGE_SIZE = Math.min(
+  100,
+  Math.max(1, Number(process.env.PINCODE_DIRECTORY_PAGE_SIZE || "100"))
+);
+const PINCODE_DIRECTORY_MAX_PAGES = Math.max(
+  1,
+  Number(process.env.PINCODE_DIRECTORY_MAX_PAGES || "25")
+);
+
 type CacheEntry<T> = { value: T; expiresAt: number };
 
 export interface ReferenceState {
@@ -35,8 +51,17 @@ export interface InstitutionSuggestion {
   source_mode?: "LIVE" | "SNAPSHOT";
 }
 
+export interface PincodeSuggestion {
+  pincode: string;
+  state: string;
+  district: string;
+  officeCount: number;
+}
+
 let statesCache: CacheEntry<ReferenceState[]> | null = null;
 const districtsCache = new Map<string, CacheEntry<ReferenceDistrict[]>>();
+const pincodeCache = new Map<string, CacheEntry<PincodeSuggestion[]>>();
+const pincodeInflight = new Map<string, Promise<PincodeSuggestion[]>>();
 let institutionCache: CacheEntry<InstitutionSuggestion[]> | null = null;
 let ugcUnavailableUntil = 0;
 
@@ -388,6 +413,146 @@ export function parseUgcColleges(html: string): InstitutionSuggestion[] {
   return dedupeBy(output, (r) => `${r.name}|${r.state}|${r.address || ""}`);
 }
 
+async function fetchPincodeDirectoryPage(
+  district: string,
+  limit: number,
+  offset: number
+): Promise<{
+  records: Array<Record<string, unknown>>;
+  totalRecords: number;
+  matchingStates: string[];
+  responseDistrict: string;
+}> {
+  const endpoint = new URL(
+    `${PINCODE_DIRECTORY_BASE_URL}/district/${encodeURIComponent(district)}`
+  );
+  endpoint.searchParams.set("limit", String(limit));
+  endpoint.searchParams.set("offset", String(offset));
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    PINCODE_DIRECTORY_TIMEOUT_MS
+  );
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(
+        `Pincode directory returned HTTP ${response.status}: ${text.slice(0, 300)}`
+      );
+    }
+
+    const parsed = JSON.parse(text) as {
+      success?: boolean;
+      data?: {
+        district?: unknown;
+        matching_states?: unknown;
+        post_offices?: unknown;
+        total_records?: unknown;
+      };
+    };
+
+    const data = parsed?.data;
+    if (!parsed?.success || !data || !Array.isArray(data.post_offices)) {
+      throw new Error("Pincode directory response did not contain data.post_offices.");
+    }
+
+    return {
+      records: data.post_offices as Array<Record<string, unknown>>,
+      totalRecords: Number(data.total_records || 0),
+      matchingStates: Array.isArray(data.matching_states)
+        ? data.matching_states.map((value) => String(value).trim()).filter(Boolean)
+        : [],
+      responseDistrict: String(data.district || "").trim(),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function loadPincodesFromDirectory(
+  state: string,
+  district: string
+): Promise<PincodeSuggestion[]> {
+  const expectedState = normalizeLocation(state);
+  const expectedDistrict = normalizeLocation(district);
+
+  if (!expectedState || !expectedDistrict) {
+    throw AppError.invalidRequest("State and district are required to resolve pincodes.");
+  }
+
+  const byPincode = new Map<string, PincodeSuggestion>();
+  let offset = 0;
+  let totalRecords = Number.POSITIVE_INFINITY;
+  let pages = 0;
+
+  while (offset < totalRecords && pages < PINCODE_DIRECTORY_MAX_PAGES) {
+    const page = await fetchPincodeDirectoryPage(
+      district,
+      PINCODE_DIRECTORY_PAGE_SIZE,
+      offset
+    );
+
+    totalRecords = page.totalRecords > 0 ? page.totalRecords : offset + page.records.length;
+
+    for (const record of page.records) {
+      const recordState = String(record.state || page.matchingStates[0] || "").trim();
+      const recordDistrict = String(record.district || page.responseDistrict || "").trim();
+      const pincode = String(record.pincode || "").trim();
+
+      if (
+        !/^\d{6}$/.test(pincode) ||
+        !locationMatches(recordState, expectedState) ||
+        !locationMatches(recordDistrict, expectedDistrict)
+      ) {
+        continue;
+      }
+
+      const existing = byPincode.get(pincode);
+      byPincode.set(pincode, {
+        pincode,
+        state: state.trim(),
+        district: district.trim(),
+        officeCount: (existing?.officeCount || 0) + 1,
+      });
+    }
+
+    pages += 1;
+    if (page.records.length === 0) break;
+    offset += page.records.length;
+
+    if (page.records.length < PINCODE_DIRECTORY_PAGE_SIZE) break;
+  }
+
+  if (offset < totalRecords && pages >= PINCODE_DIRECTORY_MAX_PAGES) {
+    throw AppError.upstreamUnavailable(
+      "The pincode directory returned more records than the configured pagination limit.",
+      { state, district, total_records: totalRecords, fetched_records: offset }
+    );
+  }
+
+  const output = Array.from(byPincode.values()).sort((a, b) =>
+    a.pincode.localeCompare(b.pincode)
+  );
+
+  if (!output.length) {
+    throw AppError.upstreamUnavailable(
+      "No valid pincodes were returned for the selected state and district.",
+      { state, district }
+    );
+  }
+
+  return output;
+}
+
 export class ReferenceDataService {
   async listStates(forceRefresh = false): Promise<ReferenceState[]> {
     if (!forceRefresh && statesCache && statesCache.expiresAt > Date.now()) return statesCache.value;
@@ -483,6 +648,71 @@ export class ReferenceDataService {
     return rows;
   }
 
+  async listPincodes(
+    state: string,
+    district: string,
+    forceRefresh = false
+  ): Promise<PincodeSuggestion[]> {
+    const normalizedState = state.trim();
+    const normalizedDistrict = district.trim();
+
+    if (!normalizedState || !normalizedDistrict) {
+      throw AppError.invalidRequest("State and district are required.");
+    }
+
+    const cacheKey = `${normalizeLocation(normalizedState)}|${normalizeLocation(normalizedDistrict)}`;
+    const cached = pincodeCache.get(cacheKey);
+
+    if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    if (forceRefresh) {
+      pincodeCache.delete(cacheKey);
+    }
+
+    const existingRequest = pincodeInflight.get(cacheKey);
+    if (existingRequest) return existingRequest;
+
+    const request = loadPincodesFromDirectory(normalizedState, normalizedDistrict)
+      .then((rows) => {
+        pincodeCache.set(cacheKey, {
+          value: rows,
+          expiresAt: Date.now() + CACHE_TTL_MS,
+        });
+        return rows;
+      })
+      .finally(() => {
+        pincodeInflight.delete(cacheKey);
+      });
+
+    pincodeInflight.set(cacheKey, request);
+    return request;
+  }
+
+  async validatePincode(
+    state: string,
+    district: string,
+    pincode: string
+  ): Promise<void> {
+    const normalizedPincode = String(pincode || "").trim();
+
+    if (!/^\d{6}$/.test(normalizedPincode)) {
+      throw AppError.invalidRequest("Pincode must be exactly 6 digits.");
+    }
+
+    const rows = await this.listPincodes(state, district);
+    if (!rows.some((row) => row.pincode === normalizedPincode)) {
+      throw AppError.invalidRequest(
+        `Pincode ${normalizedPincode} does not belong to ${district}, ${state}. Please select a valid pincode for the selected location.`,
+        {
+          state,
+          district,
+          pincode: normalizedPincode,
+        }
+      );
+    }
+  }
   async searchInstitutions(query: string, state?: string, district?: string, limit = 10): Promise<InstitutionSuggestion[]> {
     const q = query.trim();
     if (q.length < 2 || q.length > 120) return [];
@@ -526,7 +756,7 @@ export class ReferenceDataService {
 
     const combined = [...ugcRows, ...aisheRows, ...ubaRows];
     const seen = new Set<string>();
-    const deduped: InstitutionSuggestion[] = [];
+    let deduped: InstitutionSuggestion[] = [];
     for (const item of combined) {
       const identity = String(item.institution_id || "").toLowerCase();
       const key = identity || `${normalizedText(item.name)}|${normalizedText(item.state || "")}|${normalizedText(item.district || "")}`;
@@ -535,10 +765,25 @@ export class ReferenceDataService {
       deduped.push(item);
     }
 
-    // Prefer exact district matches. If a source has no district but its state
-    // matches, keep it behind exact matches instead of falsely discarding it.
+    // Location filters are hard constraints. Do not return a college from a
+    // different state/district merely because its source has a higher score.
+    // Records with a missing district are excluded when the user selected a
+    // district because they cannot be proven to belong to that district.
     const stateQ = state ? normalizeLocation(state) : "";
     const districtQ = district ? normalizeLocation(district) : "";
+
+    if (stateQ) {
+      deduped = deduped.filter(
+        (item) => Boolean(item.state) && locationMatches(item.state!, stateQ)
+      );
+    }
+
+    if (districtQ) {
+      deduped = deduped.filter(
+        (item) => Boolean(item.district) && locationMatches(item.district!, districtQ)
+      );
+    }
+
     deduped.sort((a, b) => {
       const score = (item: InstitutionSuggestion) => {
         let value = scoreInstitution(item, normalizedText(q));
