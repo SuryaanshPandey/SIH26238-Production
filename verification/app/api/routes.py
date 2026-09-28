@@ -280,10 +280,53 @@ def get_document(document_id: str):
 
 @router.get("/students/{student_id}/documents")
 def list_student_documents(student_id: str):
+    """
+    Return every document belonging to a student.
+
+    Database/storage errors are converted into a controlled 503 response
+    instead of leaking as an unstructured 500.
+    """
     if not student_id.strip():
-        raise fail("VALIDATION_ERROR", "student_id is required", status.HTTP_422_UNPROCESSABLE_ENTITY)
-    documents = document_service.list_student_documents(student_id)
-    return envelope([document.model_dump(mode="json") for document in documents])
+        raise fail(
+            "VALIDATION_ERROR",
+            "student_id is required",
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    try:
+        documents = (
+            document_service.list_student_documents(
+                student_id
+            )
+        )
+
+        return envelope(
+            [
+                document.model_dump(
+                    mode="json"
+                )
+                for document in documents
+            ]
+        )
+
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(
+            "sih26238.verification"
+        ).exception(
+            "Failed to list documents for student %s",
+            student_id,
+        )
+
+        raise fail(
+            "DOCUMENT_SERVICE_UNAVAILABLE",
+            (
+                "The document service is temporarily "
+                "unavailable. Please retry."
+            ),
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 @router.get("/applications/{application_id}/documents")
