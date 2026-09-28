@@ -132,6 +132,29 @@ function NewApplicationForm() {
     return <div className="p-6 text-center"><div className="bg-white border border-slate-200 rounded-2xl p-6"><p className="text-sm font-bold text-slate-900">Preparing your application</p><p className="text-xs text-slate-500 mt-1">{loadError || "Loading your student profile..."}</p>{loadError && <Link href="/dashboard" className="inline-flex mt-3 text-xs font-semibold text-mota-800">Back to Dashboard</Link>}</div></div>;
   }
 
+  if (!scheme) {
+    return (
+      <div className="p-6 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6">
+          <p className="text-sm font-bold text-slate-900">
+            Preparing your application
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            {loadError || "Loading the selected scholarship scheme..."}
+          </p>
+          {loadError && (
+            <Link
+              href="/scholarships"
+              className="inline-flex mt-3 text-xs font-semibold text-mota-800"
+            >
+              View Scholarships
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const applicationAvailability = getScholarshipApplicationAvailability(scheme);
   if (!applicationAvailability.canApply) {
     return (
@@ -380,12 +403,12 @@ function NewApplicationForm() {
 
           {documentsError && <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900">{documentsError}</div>}
           {isDocumentsLoading && !walletDocs.length ? (
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-center text-[11px] text-slate-500">Loading your document wallet…</div>
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-center text-[11px] text-slate-500">Loading your document walletâ€¦</div>
           ) : walletDocs.length === 0 ? (
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-center">
               <p className="text-xs font-semibold text-slate-700">No documents uploaded yet</p>
               <p className="text-[11px] text-slate-500 mt-1">Upload the certificates required for this scheme and return here to attach them.</p>
-              <Link href="/documents" className="inline-flex mt-2 text-[11px] font-bold text-mota-800">Open Document Wallet →</Link>
+              <Link href="/documents" className="inline-flex mt-2 text-[11px] font-bold text-mota-800">Open Document Wallet â†’</Link>
             </div>
           ) : null}
 
@@ -428,7 +451,7 @@ function NewApplicationForm() {
                         : "bg-slate-100 text-slate-600"
                     }`}
                   >
-                    {isVerified ? "Verified ✓" : doc.document_status}
+                    {isVerified ? "Verified âœ“" : doc.document_status}
                   </span>
                 </div>
               );

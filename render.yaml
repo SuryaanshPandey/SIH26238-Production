@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     rootDir: student-app
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: bash render-start.sh
     healthCheckPath: /
     envVars:
@@ -22,7 +22,7 @@ services:
     runtime: node
     plan: free
     rootDir: operations
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: bash render-start.sh
     healthCheckPath: /api/v1/health
     envVars:

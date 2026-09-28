@@ -23,13 +23,13 @@ function createWelcomeMessage(language: "en" | "hi" = "en"): JagoMessage {
     sender: "JAGO",
     text:
       language === "hi"
-        ? "नमस्ते! मैं JAGO हूँ। ऐप के अंदर कुछ ढूँढना, खोलना, आवेदन/भुगतान समझना या दस्तावेज़ अपलोड शुरू करना हो तो बस बोलिए।"
-        : "Namaste! I’m JAGO. Tell me what you want to find, open, understand, or do inside this scholarship app.",
+        ? "à¤¨à¤®à¤¸à¥à¤¤à¥‡! à¤®à¥ˆà¤‚ JAGO à¤¹à¥‚à¤à¥¤ à¤à¤ª à¤•à¥‡ à¤…à¤‚à¤¦à¤° à¤•à¥à¤› à¤¢à¥‚à¤à¤¢à¤¨à¤¾, à¤–à¥‹à¤²à¤¨à¤¾, à¤†à¤µà¥‡à¤¦à¤¨/à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤¸à¤®à¤à¤¨à¤¾ à¤¯à¤¾ à¤¦à¤¸à¥à¤¤à¤¾à¤µà¥‡à¤œà¤¼ à¤…à¤ªà¤²à¥‹à¤¡ à¤¶à¥à¤°à¥‚ à¤•à¤°à¤¨à¤¾ à¤¹à¥‹ à¤¤à¥‹ à¤¬à¤¸ à¤¬à¥‹à¤²à¤¿à¤à¥¤"
+        : "Namaste! Iâ€™m JAGO. Tell me what you want to find, open, understand, or do inside this scholarship app.",
     timestamp: new Date().toISOString(),
     suggested_followups: [
-      language === "hi" ? "मेरी सभी अर्जी दिखाओ" : "Show all my applications",
-      language === "hi" ? "आय प्रमाणपत्र अपलोड करना है" : "I want to upload my income certificate",
-      language === "hi" ? "मेरी पेमेंट ट्रैक करो" : "Track my scholarship payment",
+      language === "hi" ? "à¤®à¥‡à¤°à¥€ à¤¸à¤­à¥€ à¤…à¤°à¥à¤œà¥€ à¤¦à¤¿à¤–à¤¾à¤“" : "Show all my applications",
+      language === "hi" ? "à¤†à¤¯ à¤ªà¥à¤°à¤®à¤¾à¤£à¤ªà¤¤à¥à¤° à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¤¨à¤¾ à¤¹à¥ˆ" : "I want to upload my income certificate",
+      language === "hi" ? "à¤®à¥‡à¤°à¥€ à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ à¤Ÿà¥à¤°à¥ˆà¤• à¤•à¤°à¥‹" : "Track my scholarship payment",
     ],
   };
 }
@@ -71,6 +71,7 @@ export const jagoApi = {
     try {
       const history = await apiFetch<JagoBackendResponse[]>(
         `${RIJVAN_API_URL}/jago/history/${encodeURIComponent(studentId)}`,
+        {},
         { timeoutMs: 3000 },
       );
       if (!history.length) return [createWelcomeMessage(getStoredLanguage())];

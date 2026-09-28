@@ -123,10 +123,20 @@ function EligibilityForm() {
       const activeSchemeForEvaluation = schemes.find((s) => s.scheme_id === answers.scheme_id);
       if (activeSchemeForEvaluation?.source_mode === "SNAPSHOT") {
         const now = new Date();
-        const start = new Date(activeSchemeForEvaluation.start_date);
-        const end = new Date(activeSchemeForEvaluation.deadline);
-        const windowOpen = activeSchemeForEvaluation.status === "OPEN" || (now >= start && now <= end);
-        const windowClosed = activeSchemeForEvaluation.status === "CLOSED" || now > end;
+        const start = activeSchemeForEvaluation.start_date
+          ? new Date(activeSchemeForEvaluation.start_date)
+          : null;
+        const end = activeSchemeForEvaluation.deadline
+          ? new Date(activeSchemeForEvaluation.deadline)
+          : null;
+
+        const windowOpen =
+          activeSchemeForEvaluation.status === "OPEN" ||
+          (start !== null && end !== null && now >= start && now <= end);
+
+        const windowClosed =
+          activeSchemeForEvaluation.status === "CLOSED" ||
+          (end !== null && now > end);
         const localChecks = [
           {
             criteria: "APPLICATION_WINDOW",
@@ -255,13 +265,16 @@ function EligibilityForm() {
 
             {/* Annual Income */}
             <Input
-              label="Annual Family Income (in ₹)"
+              label="Annual Family Income (in â‚¹)"
               type="number"
               value={annualIncome.toString()}
               onChange={(e) => setAnnualIncome(Number(e.target.value))}
               helperText={`Scheme Ceiling: ${
-                activeScheme && activeScheme.income_ceiling > 0 && activeScheme.income_ceiling < 99999999
-                  ? `≤ ${formatCurrencyINR(activeScheme.income_ceiling)}`
+                activeScheme &&
+                activeScheme.income_ceiling !== null &&
+                activeScheme.income_ceiling > 0 &&
+                activeScheme.income_ceiling < 99999999
+                  ? `â‰¤ ${formatCurrencyINR(activeScheme.income_ceiling)}`
                   : "Not available in catalogue"
               }`}
               required

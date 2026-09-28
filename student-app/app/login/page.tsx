@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -11,7 +11,7 @@ import { ShieldCheck, ArrowRight, ArrowLeft } from "lucide-react";
 import { authApi } from "../../lib/api/auth";
 import { clearSession } from "../../lib/auth/session";
 
-export default function LoginPage() {
+function LoginContent() {
   React.useEffect(() => { clearSession(); }, []);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,5 +67,18 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-5 max-w-sm mx-auto flex flex-col justify-center min-h-[calc(100vh-140px)]">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center">
+          <p className="text-sm font-bold text-slate-900">Loading login...</p>
+        </div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

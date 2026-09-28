@@ -165,7 +165,7 @@ function parseDate(value: string): Date | null {
   const parts = named ? [Number(named[1]), named[2].toLowerCase(), Number(named[3])]
     : namedAlt ? [Number(namedAlt[2]), namedAlt[1].toLowerCase(), Number(namedAlt[3])] : null;
   if (parts && months[parts[1]] !== undefined) {
-    const date = new Date(Date.UTC(parts[2], months[parts[1]], parts[0]));
+    const date = new Date(Date.UTC(Number(parts[2]), Number(months[parts[1]]), Number(parts[0])));
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
@@ -201,7 +201,7 @@ function parseAmount(value: string): number | null {
 }
 
 function extractLargestAmount(text: string): number | null {
-  const matches = [...text.matchAll(/(?:₹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/gi)]
+  const matches = [...text.matchAll(/(?:â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/gi)]
     .map((m) => parseAmount(m[1]))
     .filter((v): v is number => v !== null && v >= 100);
   if (!matches.length) return null;
@@ -210,8 +210,8 @@ function extractLargestAmount(text: string): number | null {
 
 function extractIncomeCeiling(text: string): number | null {
   const patterns = [
-    /(?:annual|yearly)?\s*(?:family|parent(?:s)?|guardian(?:'s)?|household)?\s*income[^.]{0,220}?(?:does not exceed|not exceed|less than|up to|below)[^.]{0,100}?(?:₹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/i,
-    /(?:income)[^.]{0,220}?(?:₹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)\s*(?:per year|per annum|annually|a year)/i,
+    /(?:annual|yearly)?\s*(?:family|parent(?:s)?|guardian(?:'s)?|household)?\s*income[^.]{0,220}?(?:does not exceed|not exceed|less than|up to|below)[^.]{0,100}?(?:â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/i,
+    /(?:income)[^.]{0,220}?(?:â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)\s*(?:per year|per annum|annually|a year)/i,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -304,7 +304,7 @@ function detectJurisdiction(text: string, def: SourceDefinition): string {
   const preview = cleanHtml(text).slice(0, 900);
   for (const state of INDIAN_STATES_AND_UTS) {
     if (new RegExp(`\\b${state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(preview)) {
-      return `${state} — Government Scheme`;
+      return `${state} â€” Government Scheme`;
     }
   }
   return def.name;
@@ -640,7 +640,7 @@ function parseGeneric(def: SourceDefinition, html: string, fetchedAt: string): N
 function sourceDefinitions(): SourceDefinition[] {
   const defs: SourceDefinition[] = [
     { id: "nsp", name: "National Scholarship Portal (NSP)", url: process.env.NSP_SOURCE_URL || "https://scholarships.gov.in/All-Scholarships", kind: "NSP", priority: 100, enabled: process.env.NSP_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Number(process.env.NSP_MAX_DETAIL_PAGES || 100) },
-    { id: "myscheme", name: "myScheme — Government of India", url: process.env.MYSCHEME_SOURCE_URL || "https://www.myscheme.gov.in/search", kind: "MYSCHEME", priority: 80, enabled: process.env.MYSCHEME_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Number(process.env.MYSCHEME_MAX_DETAIL_PAGES || MAX_DETAIL_PAGES), sitemapUrl: process.env.MYSCHEME_SITEMAP_URL || "https://www.myscheme.gov.in/sitemap.xml" },
+    { id: "myscheme", name: "myScheme â€” Government of India", url: process.env.MYSCHEME_SOURCE_URL || "https://www.myscheme.gov.in/search", kind: "MYSCHEME", priority: 80, enabled: process.env.MYSCHEME_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Number(process.env.MYSCHEME_MAX_DETAIL_PAGES || MAX_DETAIL_PAGES), sitemapUrl: process.env.MYSCHEME_SITEMAP_URL || "https://www.myscheme.gov.in/sitemap.xml" },
     { id: "ugc", name: "University Grants Commission (UGC)", url: process.env.UGC_SOURCE_URL || "https://www.ugc.gov.in/Home/student_Corner", kind: "UGC", priority: 90, enabled: process.env.UGC_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 20 },
     { id: "mota", name: "Ministry of Tribal Affairs", url: process.env.MOTA_SOURCE_URL || "https://tribal.nic.in/ScholarshiP.aspx", kind: "MOTA", priority: 95, enabled: process.env.MOTA_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 15 },
     { id: "socialjustice", name: "Department of Social Justice & Empowerment", url: process.env.SOCIAL_JUSTICE_SOURCE_URL || "https://socialjustice.gov.in/schemes", kind: "SOCIAL_JUSTICE", priority: 90, enabled: process.env.SOCIAL_JUSTICE_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 20 },
@@ -793,6 +793,27 @@ function isCredibleRecord(record: NormalizedRecord): boolean {
 export class OfficialScholarshipAggregator {
   private lastRecords = new Map<string, NormalizedRecord[]>();
   private syncInFlight: Promise<AggregationSummary> | null = null;
+  async sourceDefinitionsForHealth() {
+    const definitions = sourceDefinitions();
+    const latestRuns = await this.latestSourceRuns();
+
+    const latestBySource = new Map(
+      latestRuns.map((run) => [run.sourceId, run]),
+    );
+
+    return definitions.map((definition) => ({
+      source_id: definition.id,
+      source_name: definition.name,
+      source_url: definition.url,
+      kind: definition.kind,
+      priority: definition.priority,
+      enabled: definition.enabled,
+      detail_crawl: definition.detailCrawl ?? false,
+      max_detail_pages: definition.maxDetailPages ?? null,
+      sitemap_url: definition.sitemapUrl ?? null,
+      latest_run: latestBySource.get(definition.id) ?? null,
+    }));
+  }
 
   async syncAll(): Promise<AggregationSummary> {
     if (this.syncInFlight) return this.syncInFlight;

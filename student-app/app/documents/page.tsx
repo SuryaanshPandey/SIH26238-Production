@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import React, { useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { documentsApi } from "../../lib/api/documents";
 import { governmentApi, DigiLockerStatus } from "../../lib/api/government";
@@ -16,7 +16,7 @@ import {
   Info,
 } from "lucide-react";
 
-export default function DocumentWalletPage() {
+function DocumentWalletContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const jagoAction = searchParams.get("jagoAction");
@@ -265,5 +265,18 @@ export default function DocumentWalletPage() {
         onUpload={handleUploadOrReplace}
       />
     </div>
+  );
+}
+export default function DocumentWalletPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-4 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center">
+          <p className="text-sm font-bold text-slate-900">Loading document wallet...</p>
+        </div>
+      </div>
+    }>
+      <DocumentWalletContent />
+    </Suspense>
   );
 }

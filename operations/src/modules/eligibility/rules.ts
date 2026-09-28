@@ -81,7 +81,7 @@ export class IncomeRule implements EligibilityRule {
         category: this.category,
         status: "FAILED",
         passed: false,
-        reason: `Declared income of ₹${ctx.student.annual_family_income.toLocaleString("en-IN")} exceeds the maximum allowable limit of ₹${maxIncome.toLocaleString("en-IN")} for ${ctx.scholarship.scheme_name}.`,
+        reason: `Declared income of â‚¹${ctx.student.annual_family_income.toLocaleString("en-IN")} exceeds the maximum allowable limit of â‚¹${maxIncome.toLocaleString("en-IN")} for ${ctx.scholarship.scheme_name}.`,
         evidenceRefs: [],
       };
     }
@@ -92,7 +92,7 @@ export class IncomeRule implements EligibilityRule {
       category: this.category,
       status: "SATISFIED",
       passed: true,
-      reason: `Income criteria satisfied: Family income of ₹${ctx.student.annual_family_income.toLocaleString("en-IN")} is within the limit of ₹${maxIncome.toLocaleString("en-IN")}.`,
+      reason: `Income criteria satisfied: Family income of â‚¹${ctx.student.annual_family_income.toLocaleString("en-IN")} is within the limit of â‚¹${maxIncome.toLocaleString("en-IN")}.`,
       evidenceRefs: [],
     };
   }
@@ -213,8 +213,20 @@ export class ApplicationPeriodRule implements EligibilityRule {
 
   evaluate(ctx: RuleEvaluationContext): SingleRuleResult {
     const now = ctx.applicationDate || new Date();
-    const start = new Date(ctx.scholarship.application_start_date);
-    const end = new Date(ctx.scholarship.application_end_date);
+    const start = ctx.scholarship.application_start_date ? new Date(ctx.scholarship.application_start_date) : null;
+    const end = ctx.scholarship.application_end_date ? new Date(ctx.scholarship.application_end_date) : null;
+
+    if (!start || !end) {
+      return {
+        ruleCode: this.ruleCode,
+        ruleName: this.ruleName,
+        category: this.category,
+        status: "MISSING_INFORMATION",
+        passed: false,
+        reason: "The scholarship application window is not fully published.",
+        evidenceRefs: [],
+      };
+    }
 
     if (ctx.scholarship.status === "CLOSED") {
       return {
