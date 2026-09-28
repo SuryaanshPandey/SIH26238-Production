@@ -20,17 +20,41 @@ export interface CreateScholarshipParams {
   applicationChannel?: "ONLINE_PORTAL" | "DIRECT_BENEFIT";
 }
 
-const SYNC_TTL_MS = Number(process.env.NSP_SYNC_TTL_MS || 15 * 60 * 1000);
-const FAILURE_RETRY_MS = Number(process.env.NSP_FAILURE_RETRY_MS || 60 * 1000);
+const SYNC_TTL_MS = Number(
+  process.env.NSP_SYNC_TTL_MS || 15 * 60 * 1000,
+);
+
+const FAILURE_RETRY_MS = Number(
+  process.env.NSP_FAILURE_RETRY_MS || 60 * 1000,
+);
 
 let lastSyncAt = 0;
 let lastSyncAttemptAt = 0;
+
 let syncPromise: Promise<void> | null = null;
 let snapshotLoadPromise: Promise<void> | null = null;
 
-function parseJson<T>(value: string | null | undefined, fallback: T): T {
+/*
+ * Prevent repeatedly reloading the bundled snapshot on every request.
+ *
+ * This is intentionally process-local.
+ *
+ * Whenever Render restarts/redeploys the service, this becomes false again,
+ * causing the current official snapshot loader to re-hydrate the database.
+ *
+ * This fixes existing NSP_SNAPSHOT rows that were originally created before
+ * newer snapshot-mapping logic was added, for example education_level.
+ */
+let snapshotHydrated = false;
+
+function parseJson<T>(
+  value: string | null | undefined,
+  fallback: T,
+): T {
   try {
-    return value ? (JSON.parse(value) as T) : fallback;
+    return value
+      ? (JSON.parse(value) as T)
+      : fallback;
   } catch {
     return fallback;
   }
@@ -43,8 +67,12 @@ export class ScholarshipService {
     const existing = await prisma.scholarship.findFirst({
       where: {
         OR: [
-          { scholarshipId: params.scholarshipId },
-          { schemeCode: params.schemeCode },
+          {
+            scholarshipId: params.scholarshipId,
+          },
+          {
+            schemeCode: params.schemeCode,
+          },
         ],
       },
     });
@@ -62,27 +90,53 @@ export class ScholarshipService {
         schemeCode: params.schemeCode,
         schemeType: params.schemeType,
         academicYear: params.academicYear,
+
         status: "ACTIVE",
+
         jurisdiction:
           params.jurisdiction ||
           "National - Ministry of Tribal Affairs",
+
         eligibilityRuleVersion:
           params.eligibilityRuleVersion || "v1.0",
-        applicationStartDate: new Date(params.applicationStartDate),
-        applicationEndDate: new Date(params.applicationEndDate),
-        requiredDocumentTypes: JSON.stringify(
-          params.requiredDocumentTypes,
-        ),
-        benefitSummary: JSON.stringify(params.benefitSummary),
+
+        applicationStartDate:
+          new Date(params.applicationStartDate),
+
+        applicationEndDate:
+          new Date(params.applicationEndDate),
+
+        requiredDocumentTypes:
+          JSON.stringify(
+            params.requiredDocumentTypes,
+          ),
+
+        benefitSummary:
+          JSON.stringify(
+            params.benefitSummary,
+          ),
+
         applicationChannel:
-          params.applicationChannel || "ONLINE_PORTAL",
+          params.applicationChannel ||
+          "ONLINE_PORTAL",
+
         sourceSystem: "LOCAL",
+
         ruleVersions: {
           create: {
-            version: params.eligibilityRuleVersion || "v1.0",
-            effectiveFrom: new Date(params.applicationStartDate),
+            version:
+              params.eligibilityRuleVersion ||
+              "v1.0",
+
+            effectiveFrom:
+              new Date(
+                params.applicationStartDate,
+              ),
+
             isActive: true,
-            description: "Initial production baseline rules",
+
+            description:
+              "Initial production baseline rules",
           },
         },
       },
@@ -103,9 +157,17 @@ export class ScholarshipService {
     return this.mapToContract(record);
   }
 
-  private async startLiveSync(): Promise<Promise<void> | null> {
-    // Do not hammer official sources after a recent failed attempt.
-    if (Date.now() - lastSyncAttemptAt < FAILURE_RETRY_MS) {
+  private async startLiveSync(): Promise<
+    Promise<void> | null
+  > {
+    /*
+     * Do not hammer official sources after a recent
+     * failed attempt.
+     */
+    if (
+      Date.now() - lastSyncAttemptAt <
+      FAILURE_RETRY_MS
+    ) {
       return syncPromise;
     }
 
@@ -117,11 +179,12 @@ export class ScholarshipService {
           const summary =
             await officialScholarshipAggregator.syncAll();
 
-          const successfulSources = summary.sources.filter(
-            (source) =>
-              source.status === "SUCCESS" &&
-              source.recordsFound > 0,
-          );
+          const successfulSources =
+            summary.sources.filter(
+              (source) =>
+                source.status === "SUCCESS" &&
+                source.recordsFound > 0,
+            );
 
           if (
             successfulSources.length > 0 &&
@@ -136,9 +199,16 @@ export class ScholarshipService {
             );
           }
         } catch (error) {
+          /*
+           * Live government-source crawling must never make
+           * the student-facing scholarship endpoint fail when
+           * an existing snapshot is available.
+           */
           console.warn(
             "[Scholarship Sources] Live refresh failed; keeping the available official catalogue.",
-            error instanceof Error ? error.message : error,
+            error instanceof Error
+              ? error.message
+              : error,
           );
         } finally {
           syncPromise = null;
@@ -160,19 +230,96 @@ export class ScholarshipService {
    * 2. Existing official snapshot
    * 3. Bundled official NSP snapshot
    * 4. Background live refresh
+   *
+   * The bundled snapshot is also re-hydrated once per process so that
+   * changes in snapshot mapping logic are applied to existing rows.
    */
   private async ensureRealCatalogue(): Promise<void> {
     if (process.env.REAL_DATA_MODE === "false") {
       return;
     }
 
-    let live = await nspSyncService.cachedLive();
-    let snapshot = await nspSyncService.cachedSnapshot();
+    let live =
+      await nspSyncService.cachedLive();
 
-    // Recover the last successful source refresh time after a process restart.
+    let snapshot =
+      await nspSyncService.cachedSnapshot();
+
+    /*
+     * Recover the last successful source refresh time
+     * after a process restart.
+     */
     if (lastSyncAt === 0) {
       lastSyncAt =
-        await officialScholarshipAggregator.latestSuccessfulFetchedAt();
+        await officialScholarshipAggregator
+          .latestSuccessfulFetchedAt();
+    }
+
+    /*
+     * IMPORTANT:
+     *
+     * Always perform the bundled snapshot hydration once
+     * per running process.
+     *
+     * This matters even when snapshot rows already exist.
+     *
+     * Earlier deployments created NSP_SNAPSHOT rows using
+     * the previous mapping logic, where education_level could
+     * remain HIGHER_EDUCATION because Prisma's default applied.
+     *
+     * NspSyncService.loadOfficialSnapshot() now explicitly
+     * calculates educationLevel from schemeType.
+     *
+     * Running it once after every Render process start ensures
+     * existing snapshot rows are repaired.
+     */
+    if (!snapshotHydrated) {
+      if (!snapshotLoadPromise) {
+        snapshotLoadPromise = nspSyncService
+          .loadOfficialSnapshot()
+          .then(() => {
+            snapshotHydrated = true;
+          })
+          .finally(() => {
+            snapshotLoadPromise = null;
+          });
+      }
+
+      try {
+        /*
+         * Only the first concurrent request waits for the
+         * snapshot hydration.
+         *
+         * The snapshot loader itself should be quick because
+         * it reads the bundled JSON file and performs database
+         * upserts.
+         */
+        await snapshotLoadPromise;
+      } catch (error) {
+        /*
+         * Keep the flag false if loading failed.
+         *
+         * A later request can retry the hydration.
+         */
+        snapshotHydrated = false;
+
+        console.warn(
+          "[Scholarship Sources] Official NSP snapshot hydration failed:",
+          error instanceof Error
+            ? error.message
+            : error,
+        );
+      }
+
+      /*
+       * Re-read both datasets after hydration because the
+       * previous cachedSnapshot() happened before the upserts.
+       */
+      live =
+        await nspSyncService.cachedLive();
+
+      snapshot =
+        await nspSyncService.cachedSnapshot();
     }
 
     const liveIsFresh =
@@ -180,111 +327,73 @@ export class ScholarshipService {
       lastSyncAt > 0 &&
       Date.now() - lastSyncAt <= SYNC_TTL_MS;
 
+    /*
+     * Fresh live official data is already available.
+     */
     if (liveIsFresh) {
       return;
     }
 
     /*
-     * IMPORTANT:
-     * Never make the Student App wait for external government sites
-     * when we already have usable catalogue data.
+     * Existing live/snapshot records are usable.
      *
-     * Return immediately from the request and refresh official sources
-     * in the background.
+     * Start expensive official-source crawling in the
+     * background instead of making the API request wait.
      */
-    if (live.length > 0 || snapshot.length > 0) {
+    if (
+      live.length > 0 ||
+      snapshot.length > 0
+    ) {
       void this.startLiveSync();
       return;
     }
 
     /*
-     * Brand-new production database:
+     * No usable records exist.
      *
-     * There is no live catalogue and no snapshot in PostgreSQL yet.
+     * We already attempted snapshot hydration above.
      *
-     * The repository already contains a dated official NSP catalogue
-     * snapshot:
-     *
-     * operations/data/nsp-official-snapshot-2026-09.json
-     *
-     * Load that snapshot first so the very first /scholarships request
-     * can return catalogue data immediately instead of waiting for
-     * the multi-source government crawl.
-     */
-    if (!snapshotLoadPromise) {
-      snapshotLoadPromise = nspSyncService
-        .loadOfficialSnapshot()
-        .then(() => undefined)
-        .finally(() => {
-          snapshotLoadPromise = null;
-        });
-    }
-
-    try {
-      await snapshotLoadPromise;
-    } catch (error) {
-      console.warn(
-        "[Scholarship Sources] Official NSP snapshot fallback could not be loaded:",
-        error instanceof Error ? error.message : error,
-      );
-    }
-
-    /*
-     * Re-read the snapshot after loading it.
-     *
-     * This is important because the initial cachedSnapshot() call happened
-     * before the snapshot loader populated the database.
-     */
-    snapshot = await nspSyncService.cachedSnapshot();
-
-    /*
-     * Start the expensive live official-source crawl in the background.
-     *
-     * The API request does NOT wait for this crawl.
+     * Start live refresh in the background.
+     * Never block the student-facing request on external
+     * government websites.
      */
     void this.startLiveSync();
 
     /*
-     * If the snapshot is available, the caller can proceed immediately.
-     * listScholarships() will select NSP_SNAPSHOT until live official
-     * records are successfully populated.
-     */
-    if (snapshot.length > 0) {
-      return;
-    }
-
-    /*
-     * No snapshot could be loaded.
-     *
-     * At this point the background refresh is already running. Waiting
-     * here would recreate the timeout problem we are explicitly trying
-     * to eliminate, so return and allow listScholarships() to produce
-     * the controlled 503 response if there are still no records.
+     * If no snapshot could be loaded and live data does not
+     * exist yet, listScholarships() will return the controlled
+     * 503 response instead of causing an upstream timeout.
      */
   }
 
-  private async realSourceFilter(): Promise<Record<string, any>> {
+  private async realSourceFilter(): Promise<
+    Record<string, any>
+  > {
     if (process.env.REAL_DATA_MODE === "false") {
       return {};
     }
 
-    const aggregated = await prisma.scholarship.count({
-      where: {
-        sourceSystem: "OFFICIAL_AGGREGATED",
-      },
-    });
+    const aggregated =
+      await prisma.scholarship.count({
+        where: {
+          sourceSystem:
+            "OFFICIAL_AGGREGATED",
+        },
+      });
 
     if (aggregated > 0) {
       return {
-        sourceSystem: "OFFICIAL_AGGREGATED",
+        sourceSystem:
+          "OFFICIAL_AGGREGATED",
       };
     }
 
-    const liveNsp = await prisma.scholarship.count({
-      where: {
-        sourceSystem: "NSP",
-      },
-    });
+    const liveNsp =
+      await prisma.scholarship.count({
+        where: {
+          sourceSystem: "NSP",
+        },
+      });
 
     if (liveNsp > 0) {
       return {
@@ -293,7 +402,8 @@ export class ScholarshipService {
     }
 
     return {
-      sourceSystem: "NSP_SNAPSHOT",
+      sourceSystem:
+        "NSP_SNAPSHOT",
     };
   }
 
@@ -302,100 +412,166 @@ export class ScholarshipService {
   ): Promise<ScholarshipContract | null> {
     await this.ensureRealCatalogue();
 
-    // Preserve exact historical/offline IDs referenced by existing applications.
-    const record = await prisma.scholarship.findUnique({
-      where: {
-        scholarshipId,
-      },
-    });
+    /*
+     * Preserve exact historical/offline IDs referenced
+     * by existing applications.
+     */
+    const record =
+      await prisma.scholarship.findUnique({
+        where: {
+          scholarshipId,
+        },
+      });
 
-    return record ? this.mapToContract(record) : null;
+    return record
+      ? this.mapToContract(record)
+      : null;
   }
 
-  async listScholarships(filters?: {
-    status?: string;
-    schemeType?: string;
-    academicYear?: string;
-  }): Promise<ScholarshipContract[]> {
+  async listScholarships(
+    filters?: {
+      status?: string;
+      schemeType?: string;
+      academicYear?: string;
+    },
+  ): Promise<ScholarshipContract[]> {
     await this.ensureRealCatalogue();
 
-    const aggregatedCount = await prisma.scholarship.count({
-      where: {
-        sourceSystem: "OFFICIAL_AGGREGATED",
-      },
-    });
+    const aggregatedCount =
+      await prisma.scholarship.count({
+        where: {
+          sourceSystem:
+            "OFFICIAL_AGGREGATED",
+        },
+      });
 
-    const nspCount = await prisma.scholarship.count({
-      where: {
-        sourceSystem: "NSP",
-      },
-    });
+    const nspCount =
+      await prisma.scholarship.count({
+        where: {
+          sourceSystem: "NSP",
+        },
+      });
 
+    /*
+     * Live official sources take precedence over the bundled
+     * snapshot whenever they are available.
+     *
+     * Otherwise use the official NSP snapshot.
+     */
     const sourceSystems =
-      aggregatedCount > 0 || nspCount > 0
-        ? ["OFFICIAL_AGGREGATED", "NSP"]
+      aggregatedCount > 0 ||
+      nspCount > 0
+        ? [
+            "OFFICIAL_AGGREGATED",
+            "NSP",
+          ]
         : ["NSP_SNAPSHOT"];
 
-    const rows = await prisma.scholarship.findMany({
-      where: {
-        ...(filters?.status
-          ? { status: filters.status }
-          : {}),
-        ...(filters?.schemeType
-          ? { schemeType: filters.schemeType }
-          : {}),
-        ...(filters?.academicYear
-          ? { academicYear: filters.academicYear }
-          : {}),
-        sourceSystem: {
-          in: sourceSystems,
-        },
-      },
-      orderBy: [
-        {
-          applicationEndDate: "asc",
-        },
-        {
-          schemeName: "asc",
-        },
-      ],
-    });
+    const rows =
+      await prisma.scholarship.findMany({
+        where: {
+          ...(filters?.status
+            ? {
+                status:
+                  filters.status,
+              }
+            : {}),
 
-    const precedence = (source: string | null) =>
-      source === "OFFICIAL_AGGREGATED"
+          ...(filters?.schemeType
+            ? {
+                schemeType:
+                  filters.schemeType,
+              }
+            : {}),
+
+          ...(filters?.academicYear
+            ? {
+                academicYear:
+                  filters.academicYear,
+              }
+            : {}),
+
+          sourceSystem: {
+            in: sourceSystems,
+          },
+        },
+
+        orderBy: [
+          {
+            applicationEndDate:
+              "asc",
+          },
+          {
+            schemeName:
+              "asc",
+          },
+        ],
+      });
+
+    const precedence = (
+      source: string | null,
+    ) =>
+      source ===
+      "OFFICIAL_AGGREGATED"
         ? 0
         : source === "NSP"
           ? 1
           : 2;
 
-    const contracts = rows
-      .slice()
-      .sort(
-        (a, b) =>
-          precedence(a.sourceSystem) -
-          precedence(b.sourceSystem),
-      )
-      .map((record) => this.mapToContract(record));
+    const contracts =
+      rows
+        .slice()
+        .sort(
+          (a, b) =>
+            precedence(
+              a.sourceSystem,
+            ) -
+            precedence(
+              b.sourceSystem,
+            ),
+        )
+        .map((record) =>
+          this.mapToContract(
+            record,
+          ),
+        );
 
-    const normalize = (value: string) =>
+    const normalize = (
+      value: string,
+    ) =>
       value
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
+        .replace(
+          /[^a-z0-9]+/g,
+          " ",
+        )
         .trim();
 
-    const seen = new Set<string>();
-    const deduped: ScholarshipContract[] = [];
+    const seen =
+      new Set<string>();
 
-    for (const item of contracts) {
-      const jurisdiction = item.jurisdiction.toLowerCase();
+    const deduped:
+      ScholarshipContract[] = [];
 
-      const stateMatch = jurisdiction.match(
-        /andhra pradesh|arunachal pradesh|assam|bihar|chhattisgarh|goa|gujarat|haryana|himachal pradesh|jharkhand|karnataka|kerala|madhya pradesh|maharashtra|manipur|meghalaya|mizoram|nagaland|odisha|punjab|rajasthan|sikkim|tamil nadu|telangana|tripura|uttar pradesh|uttarakhand|west bengal|delhi|jammu and kashmir|ladakh|puducherry|chandigarh/i,
-      );
+    for (
+      const item of contracts
+    ) {
+      const jurisdiction =
+        item.jurisdiction.toLowerCase();
 
-      const key = stateMatch
-        ? `${normalize(item.scheme_name)}|${stateMatch[0]}`
-        : normalize(item.scheme_name);
+      const stateMatch =
+        jurisdiction.match(
+          /andhra pradesh|arunachal pradesh|assam|bihar|chhattisgarh|goa|gujarat|haryana|himachal pradesh|jharkhand|karnataka|kerala|madhya pradesh|maharashtra|manipur|meghalaya|mizoram|nagaland|odisha|punjab|rajasthan|sikkim|tamil nadu|telangana|tripura|uttar pradesh|uttarakhand|west bengal|delhi|jammu and kashmir|ladakh|puducherry|chandigarh/i,
+        );
+
+      const key =
+        stateMatch
+          ? `${normalize(
+              item.scheme_name,
+            )}|${stateMatch[0]}`
+          : normalize(
+              item.scheme_name,
+            );
 
       if (seen.has(key)) {
         continue;
@@ -406,7 +582,8 @@ export class ScholarshipService {
     }
 
     if (
-      process.env.REAL_DATA_MODE !== "false" &&
+      process.env.REAL_DATA_MODE !==
+        "false" &&
       !deduped.length
     ) {
       throw new AppError(
@@ -427,6 +604,7 @@ export class ScholarshipService {
         where: {
           scholarshipId,
         },
+
         data: {
           status: "ACTIVE",
         },
@@ -442,6 +620,7 @@ export class ScholarshipService {
         where: {
           scholarshipId,
         },
+
         data: {
           status: "INACTIVE",
         },
@@ -449,56 +628,116 @@ export class ScholarshipService {
     );
   }
 
-  private mapToContract(record: {
-    scholarshipId: string;
-    schemeName: string;
-    schemeCode: string;
-    schemeType: string;
-    educationLevel?: string | null;
-    academicYear: string;
-    status: string;
-    jurisdiction: string;
-    eligibilityRuleVersion: string;
-    applicationStartDate: Date | null;
-    applicationEndDate: Date | null;
-    requiredDocumentTypes: string;
-    benefitSummary: string;
-    applicationChannel: string;
-    createdAt: Date;
-    updatedAt: Date;
-    sourceSystem?: string | null;
-    sourceUrl?: string | null;
-    sourceFetchedAt?: Date | null;
-    sourceEvidence?: string | null;
-    incomeCeiling?: number | null;
-    targetGroup?: string | null;
-    description?: string | null;
-    eligibilitySummary?: string | null;
-  }): ScholarshipContract {
-    const sourceSystem = record.sourceSystem || "LOCAL";
+  private mapToContract(
+    record: {
+      scholarshipId: string;
+      schemeName: string;
+      schemeCode: string;
+      schemeType: string;
+      educationLevel?:
+        | string
+        | null;
+      academicYear: string;
+      status: string;
+      jurisdiction: string;
+      eligibilityRuleVersion: string;
+      applicationStartDate:
+        | Date
+        | null;
+      applicationEndDate:
+        | Date
+        | null;
+      requiredDocumentTypes: string;
+      benefitSummary: string;
+      applicationChannel: string;
+      createdAt: Date;
+      updatedAt: Date;
 
-    const evidence = parseJson<any[]>(
-      record.sourceEvidence,
-      [],
-    );
+      sourceSystem?:
+        | string
+        | null;
 
-    const benefits = parseJson<Record<string, unknown>>(
-      record.benefitSummary,
-      {
-        maximum_amount: 0,
-      },
-    );
+      sourceUrl?:
+        | string
+        | null;
+
+      sourceFetchedAt?:
+        | Date
+        | null;
+
+      sourceEvidence?:
+        | string
+        | null;
+
+      incomeCeiling?:
+        | number
+        | null;
+
+      targetGroup?:
+        | string
+        | null;
+
+      description?:
+        | string
+        | null;
+
+      eligibilitySummary?:
+        | string
+        | null;
+    },
+  ): ScholarshipContract {
+    const sourceSystem =
+      record.sourceSystem ||
+      "LOCAL";
+
+    const evidence =
+      parseJson<any[]>(
+        record.sourceEvidence,
+        [],
+      );
+
+    const benefits =
+      parseJson<
+        Record<string, unknown>
+      >(
+        record.benefitSummary,
+        {
+          maximum_amount: 0,
+        },
+      );
 
     return {
-      scholarship_id: record.scholarshipId,
-      scheme_name: record.schemeName,
-      scheme_code: record.schemeCode,
-      scheme_type: record.schemeType as SchemeType,
-      education_level: (record.educationLevel ||
-        "HIGHER_EDUCATION") as ScholarshipContract["education_level"],
-      academic_year: record.academicYear,
-      status: record.status as ScholarshipContract["status"],
-      jurisdiction: record.jurisdiction,
+      scholarship_id:
+        record.scholarshipId,
+
+      scheme_name:
+        record.schemeName,
+
+      scheme_code:
+        record.schemeCode,
+
+      scheme_type:
+        record.schemeType as SchemeType,
+
+      education_level:
+        (
+          record.educationLevel ||
+          "HIGHER_EDUCATION"
+        ) as ScholarshipContract[
+          "education_level"
+        ],
+
+      academic_year:
+        record.academicYear,
+
+      status:
+        record.status as ScholarshipContract[
+          "status"
+        ],
+
+      jurisdiction:
+        record.jurisdiction,
+
       eligibility_rule_version:
         record.eligibilityRuleVersion,
 
@@ -512,41 +751,64 @@ export class ScholarshipService {
           ? record.applicationEndDate.toISOString()
           : null,
 
-      required_document_types: parseJson<string[]>(
-        record.requiredDocumentTypes,
-        [],
-      ),
+      required_document_types:
+        parseJson<string[]>(
+          record.requiredDocumentTypes,
+          [],
+        ),
 
       benefit_summary: {
-        maximum_amount: Number(
-          benefits.maximum_amount ?? 0,
-        ),
-        maintenance_allowance_annual: Number(
-          benefits.maintenance_allowance_annual ?? 0,
-        ),
+        maximum_amount:
+          Number(
+            benefits.maximum_amount ??
+              0,
+          ),
+
+        maintenance_allowance_annual:
+          Number(
+            benefits.maintenance_allowance_annual ??
+              0,
+          ),
+
         tuition_fee_annual:
-          benefits.tuition_fee_annual == null
+          benefits.tuition_fee_annual ==
+          null
             ? undefined
-            : Number(benefits.tuition_fee_annual),
+            : Number(
+                benefits.tuition_fee_annual,
+              ),
+
         book_grant_annual:
-          benefits.book_grant_annual == null
+          benefits.book_grant_annual ==
+          null
             ? undefined
-            : Number(benefits.book_grant_annual),
+            : Number(
+                benefits.book_grant_annual,
+              ),
+
         contingency_annual:
-          benefits.contingency_annual == null
+          benefits.contingency_annual ==
+          null
             ? undefined
-            : Number(benefits.contingency_annual),
+            : Number(
+                benefits.contingency_annual,
+              ),
       },
 
       application_channel:
         record.applicationChannel as any,
 
-      created_at: record.createdAt.toISOString(),
-      updated_at: record.updatedAt.toISOString(),
+      created_at:
+        record.createdAt.toISOString(),
 
-      source_system: sourceSystem,
+      updated_at:
+        record.updatedAt.toISOString(),
 
-      source_url: record.sourceUrl || null,
+      source_system:
+        sourceSystem,
+
+      source_url:
+        record.sourceUrl || null,
 
       source_fetched_at:
         record.sourceFetchedAt
@@ -555,28 +817,38 @@ export class ScholarshipService {
 
       source_mode:
         sourceSystem === "NSP" ||
-        sourceSystem === "OFFICIAL_AGGREGATED"
+        sourceSystem ===
+          "OFFICIAL_AGGREGATED"
           ? "LIVE"
-          : sourceSystem === "NSP_SNAPSHOT"
+          : sourceSystem ===
+              "NSP_SNAPSHOT"
             ? "SNAPSHOT"
             : undefined,
 
-      source_evidence: evidence,
-      source_count: evidence.length,
+      source_evidence:
+        evidence,
+
+      source_count:
+        evidence.length,
 
       description:
-        record.description || undefined,
+        record.description ||
+        undefined,
 
       target_group:
-        record.targetGroup || undefined,
+        record.targetGroup ||
+        undefined,
 
       income_ceiling:
-        record.incomeCeiling ?? null,
+        record.incomeCeiling ??
+        null,
 
       eligibility_summary:
-        record.eligibilitySummary || undefined,
+        record.eligibilitySummary ||
+        undefined,
     };
   }
 }
 
-export const scholarshipService = new ScholarshipService();
+export const scholarshipService =
+  new ScholarshipService();
