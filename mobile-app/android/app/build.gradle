@@ -42,11 +42,11 @@ android {
         targetSdk 37
 
         /*
-         * Incremented so a fresh production APK is clearly distinguishable
-         * from earlier locally-built/test APKs.
+         * Incremented after the production-runtime guard fix so this APK
+         * cannot be confused with the previous WebView build.
          */
-        versionCode 26
-        versionName '25.0.1'
+        versionCode 27
+        versionName '25.0.2'
 
         buildConfigField(
                 'String',
