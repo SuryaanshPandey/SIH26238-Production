@@ -19,9 +19,6 @@ function hasRequestBody(
     return false;
   }
 
-  /*
-   * GET and HEAD should never have a body in this client.
-   */
   if (
     method === "GET" ||
     method === "HEAD"
@@ -30,6 +27,71 @@ function hasRequestBody(
   }
 
   return true;
+}
+
+function buildRequestHeaders(
+  init?: RequestInit,
+  authToken?: string | null,
+): Headers {
+  const headers = new Headers(
+    init?.headers,
+  );
+
+  /*
+   * Always request JSON responses.
+   */
+  headers.set(
+    "Accept",
+    "application/json",
+  );
+
+  const method = String(
+    init?.method || "GET",
+  ).toUpperCase();
+
+  const body = init?.body;
+
+  const isFormData =
+    typeof FormData !== "undefined" &&
+    body instanceof FormData;
+
+  const requestHasBody =
+    hasRequestBody(
+      method,
+      body,
+    );
+
+  /*
+   * Only set application/json when the request actually
+   * has a non-FormData body.
+   *
+   * This prevents unnecessary CORS preflights on GET requests.
+   */
+  if (
+    requestHasBody &&
+    !isFormData &&
+    !headers.has("Content-Type")
+  ) {
+    headers.set(
+      "Content-Type",
+      "application/json",
+    );
+  }
+
+  /*
+   * Attach the current authenticated student token.
+   */
+  if (
+    authToken &&
+    !headers.has("Authorization")
+  ) {
+    headers.set(
+      "Authorization",
+      `Bearer ${authToken}`,
+    );
+  }
+
+  return headers;
 }
 
 export async function apiFetch<T>(
@@ -53,8 +115,7 @@ export async function apiFetch<T>(
 
   const timeoutId =
     setTimeout(
-      () =>
-        controller.abort(),
+      () => controller.abort(),
       options?.timeoutMs ??
         DEFAULT_TIMEOUT_MS,
     );
@@ -85,67 +146,30 @@ export async function apiFetch<T>(
         init?.method || "GET",
       ).toUpperCase();
 
-    const body =
-      init?.body;
-
-    const isFormData =
-      typeof FormData !== "undefined" &&
-      body instanceof FormData;
-
-    const requestHasBody =
-      hasRequestBody(
-        method,
-        body,
+    const headers =
+      buildRequestHeaders(
+        init,
+        authToken,
       );
-
-    /*
-     * Do NOT set Content-Type on bodyless GET/HEAD requests.
-     *
-     * Previously this client sent:
-     *
-     *   Content-Type: application/json
-     *
-     * even on GET requests. That unnecessarily caused the
-     * browser to issue a CORS OPTIONS preflight.
-     */
-    const contentHeaders =
-      requestHasBody &&
-      !isFormData
-        ? {
-            "Content-Type":
-              "application/json",
-          }
-        : {};
-
-    const authHeaders =
-      authToken
-        ? {
-            Authorization:
-              `Bearer ${authToken}`,
-          }
-        : {};
 
     response =
       await fetch(url, {
-        cache: "no-store",
-
         ...init,
 
         method,
 
+        headers,
+
+        /*
+         * Keep API responses fresh.
+         */
+        cache: "no-store",
+
+        /*
+         * Always use our composed abort signal.
+         */
         signal:
           controller.signal,
-
-        headers: {
-          Accept:
-            "application/json",
-
-          ...contentHeaders,
-
-          ...authHeaders,
-
-          ...(init?.headers || {}),
-        },
       });
   } catch (error) {
     const timedOut =
@@ -160,9 +184,7 @@ export async function apiFetch<T>(
         : error instanceof Error
           ? error.message
           : "Network request failed",
-
       0,
-
       timedOut
         ? "REQUEST_TIMEOUT"
         : "NETWORK_ERROR",
@@ -176,6 +198,12 @@ export async function apiFetch<T>(
     );
   }
 
+  /*
+   * Most SIH endpoints return JSON envelopes.
+   *
+   * Some infrastructure responses may return an empty body,
+   * so JSON parsing is intentionally defensive.
+   */
   const body =
     await response
       .json()
@@ -184,6 +212,8 @@ export async function apiFetch<T>(
   if (!response.ok) {
     /*
      * Authentication failure.
+     *
+     * Do not redirect from public login/register requests.
      */
     if (
       (
@@ -236,18 +266,14 @@ export async function apiFetch<T>(
       body?.error?.message ||
         body?.detail?.error?.message ||
         `HTTP ${response.status}`,
-
       response.status,
-
       body?.error?.code ||
         body?.detail?.error?.code,
     );
   }
 
   /*
-   * SIH API contract envelope.
-   *
-   * Expected:
+   * SIH contract envelope:
    *
    * {
    *   success: true,
@@ -266,9 +292,7 @@ export async function apiFetch<T>(
         (body as any).error
           ?.message ||
           "Remote API error",
-
         response.status,
-
         (body as any).error
           ?.code,
       );
