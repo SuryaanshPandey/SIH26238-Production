@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { handleApiSuccess, handleApiError } from "@/shared/api/handler";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const totalScholarships = await prisma.scholarship.count();
