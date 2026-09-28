@@ -15,16 +15,31 @@ jobs:
       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
       CONFIRM_PRODUCTION_DEMO: SIH26238-PRODUCTION-DEMO-2026
 
-    defaults:
-      run:
-        working-directory: operations
-
     steps:
       - name: Checkout render-stability
         uses: actions/checkout@v4
         with:
+          repository: SuryaanshPandey/SIH26238-Production
           ref: render-stability
           fetch-depth: 1
+
+      - name: Verify production database secret
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "ERROR: PRODUCTION_DATABASE_URL is not configured."
+            echo ""
+            echo "Go to:"
+            echo "Repository -> Settings -> Secrets and variables -> Actions"
+            echo ""
+            echo "Create repository secret:"
+            echo "PRODUCTION_DATABASE_URL"
+            exit 1
+          fi
+
+          echo "✓ Production database secret is available."
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -33,35 +48,21 @@ jobs:
           cache: npm
           cache-dependency-path: operations/package-lock.json
 
-      - name: Verify required secret exists
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ -z "${DATABASE_URL:-}" ]; then
-            echo "ERROR: GitHub Actions secret PRODUCTION_DATABASE_URL is missing."
-            echo ""
-            echo "Create this repository secret:"
-            echo "PRODUCTION_DATABASE_URL"
-            echo ""
-            echo "Do NOT put the database URL into the source code."
-            exit 1
-          fi
-
-          echo "Production database secret is present."
-
       - name: Install Operations dependencies
+        working-directory: operations
         run: npm ci
 
       - name: Generate Prisma Client
+        working-directory: operations
         run: npx prisma generate
 
-      - name: Validate Prisma database connection
+      - name: Test production PostgreSQL connection
+        working-directory: operations
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Testing connection to production PostgreSQL..."
+          echo "Testing production PostgreSQL connection..."
 
           npx prisma db execute --stdin <<'SQL'
           SELECT
@@ -71,39 +72,47 @@ jobs:
           SQL
 
           echo ""
-          echo "Production PostgreSQL connection succeeded."
+          echo "✓ Production PostgreSQL connection succeeded."
 
-      - name: Inspect production database counts
+      - name: Inspect production database
+        working-directory: operations
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Reading production database state..."
+          echo "Current production database state:"
+          echo ""
 
           npx prisma db execute --stdin <<'SQL'
           SELECT
             (SELECT COUNT(*) FROM "StudentAccount") AS student_accounts,
             (SELECT COUNT(*) FROM "Scholarship") AS scholarships,
             (SELECT COUNT(*) FROM "Application") AS applications,
+            (SELECT COUNT(*) FROM "Deficiency") AS deficiencies,
             (SELECT COUNT(*) FROM "Notification") AS notifications,
             (SELECT COUNT(*) FROM "JagoAssistance") AS jago_records;
           SQL
 
       - name: Provision production demo
-        run: npx tsx scripts/provision-demo-production.ts
+        working-directory: operations
+        run: |
+          npx tsx scripts/provision-demo-production.ts
 
-      - name: Verify demo account exists
+      - name: Verify demo StudentAccount
+        working-directory: operations
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Verifying provisioned demo account..."
+          echo "Checking demo StudentAccount..."
 
           npx prisma db execute --stdin <<'SQL'
           SELECT
             "studentId",
             "mobileNumber",
             "email",
+            "firstName",
+            "lastName",
             "category",
             "state",
             "district"
@@ -111,12 +120,13 @@ jobs:
           WHERE "mobileNumber" = '9000000001';
           SQL
 
-      - name: Verify demo application exists
+      - name: Verify demo applications
+        working-directory: operations
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Verifying demo applications..."
+          echo "Checking demo applications..."
 
           npx prisma db execute --stdin <<'SQL'
           SELECT
@@ -127,22 +137,73 @@ jobs:
             "currentStage"
           FROM "Application"
           WHERE "studentId" = 'STU-2026-JH-88391'
-          ORDER BY "academicYear" DESC, "createdAt" DESC;
+          ORDER BY "createdAt" DESC;
           SQL
 
-      - name: Final success
+      - name: Verify demo deficiency
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking demo deficiency..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            "deficiencyId",
+            "applicationId",
+            "type",
+            "status",
+            "requiredAction"
+          FROM "Deficiency"
+          WHERE "deficiencyId" = 'def_asha_income_mismatch';
+          SQL
+
+      - name: Verify notifications
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking demo notifications..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            COUNT(*) AS notification_count
+          FROM "Notification"
+          WHERE "studentId" = 'STU-2026-JH-88391';
+          SQL
+
+      - name: Verify JAGO context
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking JAGO context..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            COUNT(*) AS jago_count
+          FROM "JagoAssistance"
+          WHERE "studentId" = 'STU-2026-JH-88391';
+          SQL
+
+      - name: Final result
         shell: bash
         run: |
           echo ""
           echo "=============================================================="
-          echo "PRODUCTION DEMO PROVISIONING VERIFIED"
+          echo "SIH26238 PRODUCTION DEMO PROVISIONING VERIFIED"
           echo "=============================================================="
-          echo "Mobile   : 9000000001"
-          echo "Password : LocalTest@2026!"
-          echo "Student  : STU-2026-JH-88391"
           echo ""
-          echo "The production database now contains the demo account."
-          echo "Authentication remains database-backed."
-          echo "DEMO_MODE=false"
-          echo "REAL_DATA_MODE=true"
+          echo "Demo Mobile   : 9000000001"
+          echo "Demo Password : LocalTest@2026!"
+          echo "Student ID    : STU-2026-JH-88391"
+          echo ""
+          echo "Database-backed authentication is now provisioned."
+          echo "No login bypass was added."
+          echo "DEMO_MODE remains false."
+          echo "REAL_DATA_MODE remains true."
+          echo ""
           echo "=============================================================="
