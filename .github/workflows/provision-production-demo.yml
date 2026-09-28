@@ -1,0 +1,214 @@
+name: Provision Production Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision production demo database
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      CONFIRM_PRODUCTION_DEMO: SIH26238-PRODUCTION-DEMO-2026
+
+    steps:
+      - name: Checkout render-stability
+        uses: actions/checkout@v4
+        with:
+          repository: SuryaanshPandey/SIH26238-Production
+          ref: render-stability
+          fetch-depth: 1
+
+      - name: Verify production database secret
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "ERROR: PRODUCTION_DATABASE_URL is missing."
+            echo ""
+            echo "Go to:"
+            echo "Settings -> Secrets and variables -> Actions"
+            echo ""
+            echo "Create:"
+            echo "PRODUCTION_DATABASE_URL"
+            exit 1
+          fi
+
+          echo "✓ Production database secret is available."
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: operations/package-lock.json
+
+      - name: Install Operations dependencies
+        working-directory: operations
+        run: npm ci
+
+      - name: Generate Prisma Client
+        working-directory: operations
+        run: npx prisma generate
+
+      - name: Test production PostgreSQL connection
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Testing production PostgreSQL connection..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            current_database() AS database_name,
+            current_user AS database_user,
+            now() AS server_time;
+          SQL
+
+          echo ""
+          echo "✓ Production PostgreSQL connection succeeded."
+
+      - name: Inspect production database
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Current production database state:"
+          echo ""
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            (SELECT COUNT(*) FROM "StudentAccount") AS student_accounts,
+            (SELECT COUNT(*) FROM "Scholarship") AS scholarships,
+            (SELECT COUNT(*) FROM "Application") AS applications,
+            (SELECT COUNT(*) FROM "Deficiency") AS deficiencies,
+            (SELECT COUNT(*) FROM "Notification") AS notifications,
+            (SELECT COUNT(*) FROM "JagoAssistance") AS jago_records;
+          SQL
+
+      - name: Provision production demo
+        working-directory: operations
+        run: npx tsx scripts/provision-demo-production.ts
+
+      - name: Verify demo StudentAccount
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking demo StudentAccount..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            "studentId",
+            "mobileNumber",
+            "email",
+            "firstName",
+            "lastName",
+            "category",
+            "state",
+            "district"
+          FROM "StudentAccount"
+          WHERE "mobileNumber" = '9000000001';
+
+          DEMO_COUNT=$(npx prisma db execute --stdin <<'SQL2' 2>/dev/null | tail -n +2 | tr -d '[:space:]'
+          SELECT COUNT(*)
+          FROM "StudentAccount"
+          WHERE "mobileNumber" = '9000000001';
+          SQL2
+          )
+
+          if [ "${DEMO_COUNT:-0}" != "1" ]; then
+            echo "ERROR: Demo StudentAccount was not verified."
+            exit 1
+          fi
+
+          echo "✓ Demo StudentAccount verified."
+
+      - name: Verify demo applications
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking demo applications..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            "applicationId",
+            "studentId",
+            "academicYear",
+            "status",
+            "currentStage"
+          FROM "Application"
+          WHERE "studentId" = 'STU-2026-JH-88391'
+          ORDER BY "createdAt" DESC;
+          SQL
+
+      - name: Verify demo deficiency
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            "deficiencyId",
+            "applicationId",
+            "type",
+            "status",
+            "requiredAction"
+          FROM "Deficiency"
+          WHERE "deficiencyId" = 'def_asha_income_mismatch';
+          SQL
+
+      - name: Verify notifications
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            COUNT(*) AS notification_count
+          FROM "Notification"
+          WHERE "studentId" = 'STU-2026-JH-88391';
+          SQL
+
+      - name: Verify JAGO context
+        working-directory: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            COUNT(*) AS jago_count
+          FROM "JagoAssistance"
+          WHERE "studentId" = 'STU-2026-JH-88391';
+          SQL
+
+      - name: Final result
+        shell: bash
+        run: |
+          echo ""
+          echo "=============================================================="
+          echo "SIH26238 PRODUCTION DEMO PROVISIONING VERIFIED"
+          echo "=============================================================="
+          echo ""
+          echo "Demo Mobile   : 9000000001"
+          echo "Demo Password : LocalTest@2026!"
+          echo "Student ID    : STU-2026-JH-88391"
+          echo ""
+          echo "Database-backed authentication has been provisioned."
+          echo "DEMO_MODE=false"
+          echo "REAL_DATA_MODE=true"
+          echo ""
+          echo "=============================================================="
