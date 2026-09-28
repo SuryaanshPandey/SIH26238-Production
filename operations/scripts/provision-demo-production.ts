@@ -45,29 +45,28 @@ const DEMO = {
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
 
-  const derived = crypto.scryptSync(
-    password,
-    salt,
-    64,
-  ).toString("hex");
+  const derived = crypto
+    .scryptSync(password, salt, 64)
+    .toString("hex");
 
   return `${salt}:${derived}`;
 }
 
 async function ensureStatusHistory(
-  tx: PrismaClient,
+  tx: Prisma.TransactionClient,
   applicationId: string,
   toStatus: string,
   correlationId: string,
   reason: string,
 ) {
-  const existing = await tx.applicationStatusHistory.findFirst({
-    where: {
-      applicationId,
-      toStatus,
-      correlationId,
-    },
-  });
+  const existing =
+    await tx.applicationStatusHistory.findFirst({
+      where: {
+        applicationId,
+        toStatus,
+        correlationId,
+      },
+    });
 
   if (existing) {
     return existing;
@@ -88,18 +87,25 @@ async function ensureStatusHistory(
 
 async function main() {
   console.log("");
-  console.log("==============================================================");
-  console.log("SIH26238 PRODUCTION DEMO PROVISIONER");
-  console.log("==============================================================");
+  console.log(
+    "==============================================================",
+  );
+  console.log(
+    "SIH26238 PRODUCTION DEMO PROVISIONER",
+  );
+  console.log(
+    "==============================================================",
+  );
 
   if (
-    process.env.CONFIRM_PRODUCTION_DEMO !== CONFIRMATION
+    process.env.CONFIRM_PRODUCTION_DEMO !==
+    CONFIRMATION
   ) {
     throw new Error(
       [
         "Safety check failed.",
         "",
-        "Before running this script, set:",
+        "Set the following environment variable before running:",
         `CONFIRM_PRODUCTION_DEMO=${CONFIRMATION}`,
       ].join("\n"),
     );
@@ -111,74 +117,77 @@ async function main() {
     );
   }
 
-  console.log("✓ Safety confirmation accepted.");
-  console.log("✓ DATABASE_URL is present.");
+  console.log(
+    "✓ Production provisioning safety confirmation accepted.",
+  );
 
-  /*
-   * Everything below runs inside one transaction.
-   *
-   * If any part fails, PostgreSQL rolls back the entire provisioning
-   * operation rather than leaving a partially-created demo account.
-   */
+  console.log(
+    "✓ DATABASE_URL is present.",
+  );
+
   await prisma.$transaction(
     async (tx) => {
       // ----------------------------------------------------------
-      // 1. Verify production scholarship catalogue.
+      // 1. Find an official active 2026-2027 Post-Matric scheme.
       // ----------------------------------------------------------
 
       console.log("");
-      console.log("1. Checking production scholarship catalogue...");
+      console.log(
+        "1. Checking production scholarship catalogue...",
+      );
 
-      const scholarship = await tx.scholarship.findFirst({
-        where: {
-          academicYear: "2026-2027",
-          status: "ACTIVE",
-          sourceSystem: {
-            not: "LOCAL",
+      const scholarship =
+        await tx.scholarship.findFirst({
+          where: {
+            academicYear: "2026-2027",
+            status: "ACTIVE",
+            sourceSystem: {
+              not: "LOCAL",
+            },
+            OR: [
+              {
+                schemeName: {
+                  contains: "Post-Matric",
+                  mode: "insensitive",
+                },
+              },
+              {
+                schemeName: {
+                  contains: "Post Matric",
+                  mode: "insensitive",
+                },
+              },
+              {
+                schemeCode: {
+                  contains: "PMS",
+                  mode: "insensitive",
+                },
+              },
+            ],
           },
-          OR: [
-            {
-              schemeName: {
-                contains: "Post-Matric",
-                mode: "insensitive",
-              },
-            },
-            {
-              schemeName: {
-                contains: "Post Matric",
-                mode: "insensitive",
-              },
-            },
-            {
-              schemeCode: {
-                contains: "PMS",
-                mode: "insensitive",
-              },
-            },
-          ],
-        },
-        orderBy: {
-          updatedAt: "desc",
-        },
-        select: {
-          scholarshipId: true,
-          schemeName: true,
-          schemeCode: true,
-          academicYear: true,
-          status: true,
-          sourceSystem: true,
-          sourceUrl: true,
-        },
-      });
+          orderBy: {
+            updatedAt: "desc",
+          },
+          select: {
+            scholarshipId: true,
+            schemeName: true,
+            schemeCode: true,
+            academicYear: true,
+            status: true,
+            sourceSystem: true,
+            sourceUrl: true,
+          },
+        });
 
       if (!scholarship) {
         throw new Error(
           [
             "No active official 2026-2027 Post-Matric scholarship was found.",
             "",
-            "The script will NOT create a fake/local scholarship.",
-            "Verify that the official scholarship catalogue is populated",
-            "in the production Operations database before running this job.",
+            "The provisioner will not create a fake/local scholarship.",
+            "",
+            "Verify that the official scholarship catalogue has been",
+            "populated in the production Operations database first.",
           ].join("\n"),
         );
       }
@@ -186,32 +195,46 @@ async function main() {
       console.log(
         `✓ Scholarship found: ${scholarship.schemeName}`,
       );
+
       console.log(
-        `  ID           : ${scholarship.scholarshipId}`,
-      );
-      console.log(
-        `  Code         : ${scholarship.schemeCode}`,
-      );
-      console.log(
-        `  AcademicYear : ${scholarship.academicYear}`,
-      );
-      console.log(
-        `  Source       : ${scholarship.sourceSystem}`,
+        `  Scholarship ID : ${scholarship.scholarshipId}`,
       );
 
-      const scholarshipId = scholarship.scholarshipId;
+      console.log(
+        `  Scheme Code    : ${scholarship.schemeCode}`,
+      );
+
+      console.log(
+        `  Academic Year  : ${scholarship.academicYear}`,
+      );
+
+      console.log(
+        `  Source System  : ${scholarship.sourceSystem}`,
+      );
+
+      if (scholarship.sourceUrl) {
+        console.log(
+          `  Source URL     : ${scholarship.sourceUrl}`,
+        );
+      }
+
+      const scholarshipId =
+        scholarship.scholarshipId;
 
       // ----------------------------------------------------------
-      // 2. Check for conflicting mobile/email/student ID.
+      // 2. Detect identity conflicts.
       // ----------------------------------------------------------
 
       console.log("");
-      console.log("2. Checking demo identity uniqueness...");
+      console.log(
+        "2. Checking demo identity uniqueness...",
+      );
 
       const existingByMobile =
         await tx.studentAccount.findUnique({
           where: {
-            mobileNumber: DEMO.mobileNumber,
+            mobileNumber:
+              DEMO.mobileNumber,
           },
         });
 
@@ -225,14 +248,16 @@ async function main() {
       const existingByStudentId =
         await tx.studentAccount.findUnique({
           where: {
-            studentId: DEMO.studentId,
+            studentId:
+              DEMO.studentId,
           },
         });
 
       if (
         existingByEmail &&
         existingByMobile &&
-        existingByEmail.id !== existingByMobile.id
+        existingByEmail.id !==
+          existingByMobile.id
       ) {
         throw new Error(
           "Demo email belongs to a different production student account.",
@@ -242,10 +267,11 @@ async function main() {
       if (
         existingByStudentId &&
         existingByMobile &&
-        existingByStudentId.id !== existingByMobile.id
+        existingByStudentId.id !==
+          existingByMobile.id
       ) {
         throw new Error(
-          "Demo studentId belongs to a different production student account.",
+          "Demo student ID belongs to a different production student account.",
         );
       }
 
@@ -267,120 +293,201 @@ async function main() {
         );
       }
 
-      console.log("✓ No identity conflict detected.");
+      console.log(
+        "✓ No identity conflict detected.",
+      );
 
       // ----------------------------------------------------------
-      // 3. Upsert demo StudentAccount.
+      // 3. Upsert StudentAccount.
       // ----------------------------------------------------------
 
       console.log("");
-      console.log("3. Provisioning demo StudentAccount...");
+      console.log(
+        "3. Provisioning demo StudentAccount...",
+      );
 
-      const passwordHash = hashPassword(DEMO.password);
+      const passwordHash =
+        hashPassword(DEMO.password);
 
-      const student = await tx.studentAccount.upsert({
-        where: {
-          mobileNumber: DEMO.mobileNumber,
-        },
+      const student =
+        await tx.studentAccount.upsert({
+          where: {
+            mobileNumber:
+              DEMO.mobileNumber,
+          },
 
-        create: {
-          studentId: DEMO.studentId,
-          mobileNumber: DEMO.mobileNumber,
-          email: DEMO.email,
-          passwordHash,
+          create: {
+            studentId:
+              DEMO.studentId,
 
-          firstName: DEMO.firstName,
-          lastName: DEMO.lastName,
-          dateOfBirth: DEMO.dateOfBirth,
-          gender: DEMO.gender,
-          category: DEMO.category,
-          subTribe: DEMO.subTribe,
-          annualFamilyIncome: DEMO.annualFamilyIncome,
+            mobileNumber:
+              DEMO.mobileNumber,
 
-          state: DEMO.state,
-          stateLgdCode: DEMO.stateLgdCode,
-          district: DEMO.district,
-          districtLgdCode: DEMO.districtLgdCode,
-          pincode: DEMO.pincode,
+            email:
+              DEMO.email,
 
-          institutionId: DEMO.institutionId,
-          institutionName: DEMO.institutionName,
-          institutionSourceSystem:
-            DEMO.institutionSourceSystem,
+            passwordHash,
 
-          educationLevel: DEMO.educationLevel,
-          courseName: DEMO.courseName,
-          currentAcademicYear:
-            DEMO.currentAcademicYear,
+            firstName:
+              DEMO.firstName,
 
-          maskedAadhaar: DEMO.maskedAadhaar,
-          bankAccountMasked:
-            DEMO.bankAccountMasked,
-          bankIfsc: DEMO.bankIfsc,
+            lastName:
+              DEMO.lastName,
 
-          apaarToken: DEMO.apaarToken,
-          digilockerIdMasked:
-            DEMO.digilockerIdMasked,
-        },
+            dateOfBirth:
+              DEMO.dateOfBirth,
 
-        update: {
-          studentId: DEMO.studentId,
-          email: DEMO.email,
-          passwordHash,
+            gender:
+              DEMO.gender,
 
-          firstName: DEMO.firstName,
-          lastName: DEMO.lastName,
-          dateOfBirth: DEMO.dateOfBirth,
-          gender: DEMO.gender,
-          category: DEMO.category,
-          subTribe: DEMO.subTribe,
-          annualFamilyIncome:
-            DEMO.annualFamilyIncome,
+            category:
+              DEMO.category,
 
-          state: DEMO.state,
-          stateLgdCode: DEMO.stateLgdCode,
-          district: DEMO.district,
-          districtLgdCode:
-            DEMO.districtLgdCode,
-          pincode: DEMO.pincode,
+            subTribe:
+              DEMO.subTribe,
 
-          institutionId:
-            DEMO.institutionId,
-          institutionName:
-            DEMO.institutionName,
-          institutionSourceSystem:
-            DEMO.institutionSourceSystem,
+            annualFamilyIncome:
+              DEMO.annualFamilyIncome,
 
-          educationLevel:
-            DEMO.educationLevel,
-          courseName:
-            DEMO.courseName,
-          currentAcademicYear:
-            DEMO.currentAcademicYear,
+            state:
+              DEMO.state,
 
-          maskedAadhaar:
-            DEMO.maskedAadhaar,
-          bankAccountMasked:
-            DEMO.bankAccountMasked,
-          bankIfsc:
-            DEMO.bankIfsc,
+            stateLgdCode:
+              DEMO.stateLgdCode,
 
-          apaarToken:
-            DEMO.apaarToken,
-          digilockerIdMasked:
-            DEMO.digilockerIdMasked,
-        },
-      });
+            district:
+              DEMO.district,
+
+            districtLgdCode:
+              DEMO.districtLgdCode,
+
+            pincode:
+              DEMO.pincode,
+
+            institutionId:
+              DEMO.institutionId,
+
+            institutionName:
+              DEMO.institutionName,
+
+            institutionSourceSystem:
+              DEMO.institutionSourceSystem,
+
+            educationLevel:
+              DEMO.educationLevel,
+
+            courseName:
+              DEMO.courseName,
+
+            currentAcademicYear:
+              DEMO.currentAcademicYear,
+
+            maskedAadhaar:
+              DEMO.maskedAadhaar,
+
+            bankAccountMasked:
+              DEMO.bankAccountMasked,
+
+            bankIfsc:
+              DEMO.bankIfsc,
+
+            apaarToken:
+              DEMO.apaarToken,
+
+            digilockerIdMasked:
+              DEMO.digilockerIdMasked,
+          },
+
+          update: {
+            studentId:
+              DEMO.studentId,
+
+            email:
+              DEMO.email,
+
+            passwordHash,
+
+            firstName:
+              DEMO.firstName,
+
+            lastName:
+              DEMO.lastName,
+
+            dateOfBirth:
+              DEMO.dateOfBirth,
+
+            gender:
+              DEMO.gender,
+
+            category:
+              DEMO.category,
+
+            subTribe:
+              DEMO.subTribe,
+
+            annualFamilyIncome:
+              DEMO.annualFamilyIncome,
+
+            state:
+              DEMO.state,
+
+            stateLgdCode:
+              DEMO.stateLgdCode,
+
+            district:
+              DEMO.district,
+
+            districtLgdCode:
+              DEMO.districtLgdCode,
+
+            pincode:
+              DEMO.pincode,
+
+            institutionId:
+              DEMO.institutionId,
+
+            institutionName:
+              DEMO.institutionName,
+
+            institutionSourceSystem:
+              DEMO.institutionSourceSystem,
+
+            educationLevel:
+              DEMO.educationLevel,
+
+            courseName:
+              DEMO.courseName,
+
+            currentAcademicYear:
+              DEMO.currentAcademicYear,
+
+            maskedAadhaar:
+              DEMO.maskedAadhaar,
+
+            bankAccountMasked:
+              DEMO.bankAccountMasked,
+
+            bankIfsc:
+              DEMO.bankIfsc,
+
+            apaarToken:
+              DEMO.apaarToken,
+
+            digilockerIdMasked:
+              DEMO.digilockerIdMasked,
+          },
+        });
 
       console.log(
         `✓ Student account ready: ${student.studentId}`,
       );
+
       console.log(
         `  Mobile: ${student.mobileNumber}`,
       );
 
       // ----------------------------------------------------------
-      // 4. Current action-required application.
+      // 4. Provision current ACTION_REQUIRED application.
       // ----------------------------------------------------------
 
       console.log("");
@@ -414,7 +521,9 @@ async function main() {
               "DEFICIENCY_RESOLUTION",
 
             submittedAt:
-              new Date("2026-08-18T10:30:00Z"),
+              new Date(
+                "2026-08-18T10:30:00Z",
+              ),
 
             institutionId:
               DEMO.institutionId,
@@ -436,7 +545,9 @@ async function main() {
               "DEFICIENCY_RESOLUTION",
 
             submittedAt:
-              new Date("2026-08-18T10:30:00Z"),
+              new Date(
+                "2026-08-18T10:30:00Z",
+              ),
 
             institutionId:
               DEMO.institutionId,
@@ -456,11 +567,13 @@ async function main() {
       );
 
       // ----------------------------------------------------------
-      // 5. Open deficiency.
+      // 5. Provision current deficiency.
       // ----------------------------------------------------------
 
       console.log("");
-      console.log("5. Provisioning open deficiency...");
+      console.log(
+        "5. Provisioning open deficiency...",
+      );
 
       const deficiency =
         await tx.deficiency.upsert({
@@ -495,7 +608,9 @@ async function main() {
               "CLARIFICATION",
 
             dueAt:
-              new Date("2026-10-10T23:59:59Z"),
+              new Date(
+                "2026-10-10T23:59:59Z",
+              ),
           },
 
           update: {
@@ -521,7 +636,9 @@ async function main() {
               "CLARIFICATION",
 
             dueAt:
-              new Date("2026-10-10T23:59:59Z"),
+              new Date(
+                "2026-10-10T23:59:59Z",
+              ),
           },
         });
 
@@ -530,7 +647,7 @@ async function main() {
       );
 
       // ----------------------------------------------------------
-      // 6. Historical sanctioned application.
+      // 6. Provision historical 2025-2026 sanctioned application.
       // ----------------------------------------------------------
 
       console.log("");
@@ -564,7 +681,9 @@ async function main() {
               "SANCTION_ISSUED",
 
             submittedAt:
-              new Date("2025-08-10T12:00:00Z"),
+              new Date(
+                "2025-08-10T12:00:00Z",
+              ),
 
             institutionId:
               DEMO.institutionId,
@@ -586,7 +705,9 @@ async function main() {
               "SANCTION_ISSUED",
 
             submittedAt:
-              new Date("2025-08-10T12:00:00Z"),
+              new Date(
+                "2025-08-10T12:00:00Z",
+              ),
 
             institutionId:
               DEMO.institutionId,
@@ -606,12 +727,12 @@ async function main() {
       );
 
       // ----------------------------------------------------------
-      // 7. Sanction.
+      // 7. Provision sanction.
       // ----------------------------------------------------------
 
       console.log("");
       console.log(
-        "7. Provisioning sanction record...",
+        "7. Provisioning sanction...",
       );
 
       const sanction =
@@ -641,7 +762,9 @@ async function main() {
               "SANCTION-MTA-2025-ASHA-001",
 
             sanctionedAt:
-              new Date("2026-08-25T11:00:00Z"),
+              new Date(
+                "2026-08-25T11:00:00Z",
+              ),
           },
 
           update: {
@@ -661,24 +784,27 @@ async function main() {
               "SANCTION-MTA-2025-ASHA-001",
 
             sanctionedAt:
-              new Date("2026-08-25T11:00:00Z"),
+              new Date(
+                "2026-08-25T11:00:00Z",
+              ),
           },
         });
 
       console.log(
         `✓ Sanction ready: ${sanction.sanctionId}`,
       );
+
       console.log(
         `  Amount: ₹${sanction.amount.toLocaleString("en-IN")}`,
       );
 
       // ----------------------------------------------------------
-      // 8. Payment.
+      // 8. Provision payment tracking.
       // ----------------------------------------------------------
 
       console.log("");
       console.log(
-        "8. Provisioning payment tracking record...",
+        "8. Provisioning payment tracking...",
       );
 
       const payment =
@@ -708,7 +834,9 @@ async function main() {
               "PFMS-ASHA-2026-001",
 
             initiatedAt:
-              new Date("2026-09-10T14:00:00Z"),
+              new Date(
+                "2026-09-10T14:00:00Z",
+              ),
 
             source:
               "PFMS_DBT",
@@ -731,7 +859,9 @@ async function main() {
               "PFMS-ASHA-2026-001",
 
             initiatedAt:
-              new Date("2026-09-10T14:00:00Z"),
+              new Date(
+                "2026-09-10T14:00:00Z",
+              ),
 
             source:
               "PFMS_DBT",
@@ -741,12 +871,13 @@ async function main() {
       console.log(
         `✓ Payment ready: ${payment.paymentId}`,
       );
+
       console.log(
         `  Status: ${payment.status}`,
       );
 
       // ----------------------------------------------------------
-      // 9. Notifications.
+      // 9. Provision notifications.
       // ----------------------------------------------------------
 
       console.log("");
@@ -905,7 +1036,7 @@ async function main() {
       );
 
       // ----------------------------------------------------------
-      // 10. JAGO context.
+      // 10. Provision JAGO context.
       // ----------------------------------------------------------
 
       console.log("");
@@ -981,12 +1112,12 @@ async function main() {
       );
 
       // ----------------------------------------------------------
-      // 11. Final consistency checks inside the transaction.
+      // 11. Verify everything before transaction commit.
       // ----------------------------------------------------------
 
       console.log("");
       console.log(
-        "11. Running final database consistency checks...",
+        "11. Running final consistency checks...",
       );
 
       const verifiedStudent =
@@ -1005,7 +1136,7 @@ async function main() {
 
       if (!verifiedStudent) {
         throw new Error(
-          "Final verification failed: demo StudentAccount not found.",
+          "Final verification failed: demo StudentAccount was not found.",
         );
       }
 
@@ -1014,7 +1145,7 @@ async function main() {
         DEMO.studentId
       ) {
         throw new Error(
-          "Final verification failed: demo studentId mismatch.",
+          "Final verification failed: student ID does not match expected demo student.",
         );
       }
 
@@ -1043,7 +1174,7 @@ async function main() {
 
       if (deficiencyCount < 1) {
         throw new Error(
-          "Final verification failed: expected an OPEN deficiency.",
+          "Final verification failed: expected at least one OPEN deficiency.",
         );
       }
 
@@ -1071,7 +1202,7 @@ async function main() {
 
       if (jagoCount < 1) {
         throw new Error(
-          "Final verification failed: expected JAGO context.",
+          "Final verification failed: expected at least one JAGO record.",
         );
       }
 
@@ -1091,7 +1222,16 @@ async function main() {
 
       if (!verifiedSanction) {
         throw new Error(
-          "Final verification failed: sanction record missing.",
+          "Final verification failed: sanction record is missing.",
+        );
+      }
+
+      if (
+        verifiedSanction.status !==
+        "ISSUED"
+      ) {
+        throw new Error(
+          `Final verification failed: sanction status is ${verifiedSanction.status}, expected ISSUED.`,
         );
       }
 
@@ -1111,73 +1251,62 @@ async function main() {
 
       if (!verifiedPayment) {
         throw new Error(
-          "Final verification failed: payment record missing.",
+          "Final verification failed: payment record is missing.",
+        );
+      }
+
+      if (
+        verifiedPayment.status !==
+        "PROCESSING"
+      ) {
+        throw new Error(
+          `Final verification failed: payment status is ${verifiedPayment.status}, expected PROCESSING.`,
         );
       }
 
       console.log(
-        "✓ Student account check passed.",
+        "✓ Student account verification passed.",
       );
+
       console.log(
         `✓ Application count: ${applicationCount}`,
       );
+
       console.log(
         `✓ Open deficiencies: ${deficiencyCount}`,
       );
+
       console.log(
-        `✓ Notifications: ${notificationCount}`,
+        `✓ Notification count: ${notificationCount}`,
       );
+
       console.log(
-        `✓ JAGO records: ${jagoCount}`,
+        `✓ JAGO record count: ${jagoCount}`,
       );
+
       console.log(
         `✓ Sanction: ${verifiedSanction.status} / ₹${verifiedSanction.amount.toLocaleString("en-IN")}`,
       );
+
       console.log(
         `✓ Payment: ${verifiedPayment.status} / ₹${verifiedPayment.amount.toLocaleString("en-IN")}`,
       );
 
-      // ----------------------------------------------------------
-      // 12. Final transaction success message.
-      // ----------------------------------------------------------
-
       console.log("");
       console.log(
-        "==============================================================",
-      );
-      console.log(
-        "PRODUCTION DEMO PROVISIONING COMPLETED",
-      );
-      console.log(
-        "==============================================================",
+        "--------------------------------------------------------------",
       );
 
       console.log(
-        `Student ID      : ${DEMO.studentId}`,
+        "All production demo consistency checks passed.",
       );
 
       console.log(
-        `Demo Mobile     : ${DEMO.mobileNumber}`,
+        "The transaction is ready to commit.",
       );
 
       console.log(
-        `Demo Password   : ${DEMO.password}`,
-      );
-
-      console.log(
-        `Scholarship ID  : ${scholarshipId}`,
-      );
-
-      console.log(
-        `Action App      : ${actionApplication.applicationId}`,
-      );
-
-      console.log(
-        `Historical App  : ${sanctionedApplication.applicationId}`,
-      );
-
-      console.log(
-        "==============================================================",
+        "--------------------------------------------------------------",
       );
     },
     {
@@ -1188,15 +1317,66 @@ async function main() {
 
   console.log("");
   console.log(
-    "✓ PostgreSQL transaction committed successfully.",
+    "==============================================================",
   );
   console.log(
-    "✓ The production demo account is now database-backed.",
+    "PRODUCTION DEMO PROVISIONING COMPLETED SUCCESSFULLY",
   );
   console.log(
-    "✓ No DEMO_MODE bypass was added to authentication.",
+    "==============================================================",
   );
-  console.log("");
+
+  console.log(
+    `Student ID     : ${DEMO.studentId}`,
+  );
+
+  console.log(
+    `Demo Mobile    : ${DEMO.mobileNumber}`,
+  );
+
+  console.log(
+    `Demo Password  : ${DEMO.password}`,
+  );
+
+  console.log(
+    "--------------------------------------------------------------",
+  );
+
+  console.log(
+    "Production remains configured for:",
+  );
+
+  console.log(
+    "DEMO_MODE=false",
+  );
+
+  console.log(
+    "REAL_DATA_MODE=true",
+  );
+
+  console.log(
+    "--------------------------------------------------------------",
+  );
+
+  console.log(
+    "✓ Database-backed authentication is being used.",
+  );
+
+  console.log(
+    "✓ No authentication bypass was added.",
+  );
+
+  console.log(
+    "✓ No destructive db:seed operation was performed.",
+  );
+
+  console.log(
+    "✓ Provisioning transaction committed atomically.",
+  );
+
+  console.log(
+    "==============================================================",
+  );
 }
 
 main()
@@ -1205,15 +1385,18 @@ main()
     console.error(
       "==============================================================",
     );
+
     console.error(
       "❌ PRODUCTION DEMO PROVISIONING FAILED",
     );
+
     console.error(
       "==============================================================",
     );
 
     if (error instanceof Error) {
       console.error(error.message);
+
       if (error.stack) {
         console.error("");
         console.error(error.stack);
