@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { scholarshipApi } from "../../lib/api/scholarship";
+import { scholarshipApi, ScholarshipSyncStatus } from "../../lib/api/scholarship";
 import { Scholarship } from "../../lib/contracts/types";
 import { SchemeCard } from "../../components/scholarship/SchemeCard";
 import { SchemeFilter } from "../../components/scholarship/SchemeFilter";
@@ -15,6 +15,8 @@ export default function ScholarshipsPage() {
   const [isLoading, setIsLoading] = useState(() => scholarshipApi.getCachedScholarships().length === 0);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<ScholarshipSyncStatus | null>(null);
+  const [refreshingCatalogue, setRefreshingCatalogue] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +32,44 @@ export default function ScholarshipsPage() {
     return () => { cancelled = true; };
   }, [retry]);
 
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const poll = async () => {
+      try {
+        const status = await scholarshipApi.getSyncStatus();
+        if (cancelled) return;
+        setSyncStatus(status);
+        if (status.status === "RUNNING") {
+          timer = window.setTimeout(poll, 2200);
+        }
+      } catch {
+        if (!cancelled) timer = window.setTimeout(poll, 5000);
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [retry]);
+
+  const handleCatalogueRefresh = async () => {
+    setRefreshingCatalogue(true);
+    try {
+      await scholarshipApi.getScholarships(true);
+      const status = await scholarshipApi.getSyncStatus();
+      setSyncStatus(status);
+      if (status.status === "RUNNING") {
+        setRetry((value) => value + 1);
+      }
+    } finally {
+      setRefreshingCatalogue(false);
+    }
+  };
   const filtered = scholarships.filter((scheme) => {
     const matchesSearch = scheme.scheme_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       scheme.scheme_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -41,12 +81,18 @@ export default function ScholarshipsPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center"><Compass className="w-4 h-4" /></div>
-          <h2 className="text-base font-bold text-slate-900">Scholarship Discovery</h2>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center"><Compass className="w-4 h-4" /></div>
+            <h2 className="text-base font-bold text-slate-900">Scholarship Discovery</h2>
+          </div>
+          <p className="text-xs text-slate-500">Live scholarship records aggregated from official government sources for academic year 2026-27.</p>
         </div>
-        <p className="text-xs text-slate-500">Live scholarship records aggregated from official government sources for academic year 2026-27.</p>
+        <Button size="sm" variant="outline" onClick={handleCatalogueRefresh} disabled={refreshingCatalogue} className="gap-1 shrink-0">
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshingCatalogue ? "animate-spin" : ""}`} />
+          {refreshingCatalogue ? "Refreshing..." : "Refresh sources"}
+        </Button>
       </div>
 
       <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-xl text-[11px] text-blue-900 flex items-start gap-2">
@@ -68,6 +114,68 @@ export default function ScholarshipsPage() {
         </div>
       )}
 
+
+      {syncStatus?.status === "RUNNING" && (
+        <div className="rounded-2xl border border-blue-200 bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <p className="text-xs font-bold text-slate-900">Updating official scholarship catalogue</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                {syncStatus.phase === "DISCOVERING"
+                  ? "Discovering official catalogue records..."
+                  : syncStatus.phase === "ENRICHING"
+                    ? `Fetching scheme details from ${syncStatus.currentSourceName || "official sources"}...`
+                    : "Finalizing the normalized catalogue..."}
+              </p>
+            </div>
+            <span className="text-xs font-bold text-blue-800">{syncStatus.percent}%</span>
+          </div>
+
+          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-blue-700 transition-all duration-500"
+              style={{ width: `${Math.max(0, Math.min(100, syncStatus.percent))}%` }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-[10px]">
+            <div className="rounded-lg bg-slate-50 px-2 py-1.5"><span className="text-slate-500">Sources</span><div className="font-bold text-slate-800">{syncStatus.sources.filter((source) => source.status === "SUCCESS" || source.status === "NO_RECORDS").length}/{syncStatus.sources.length}</div></div>
+            <div className="rounded-lg bg-slate-50 px-2 py-1.5"><span className="text-slate-500">Records found</span><div className="font-bold text-slate-800">{syncStatus.sources.reduce((sum, source) => sum + source.recordsFound, 0)}</div></div>
+            <div className="rounded-lg bg-slate-50 px-2 py-1.5"><span className="text-slate-500">Unique</span><div className="font-bold text-slate-800">{syncStatus.uniqueRecords}</div></div>
+            <div className="rounded-lg bg-slate-50 px-2 py-1.5"><span className="text-slate-500">Saved</span><div className="font-bold text-slate-800">{syncStatus.upserted}</div></div>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {syncStatus.sources.map((source) => (
+              <div key={source.sourceId}>
+                <div className="flex items-center justify-between gap-2 text-[10px] mb-1">
+                  <span className="truncate text-slate-700">{source.sourceName}</span>
+                  <span className="shrink-0 font-semibold text-slate-500">
+                    {source.status === "PENDING" ? "Waiting" : source.status === "RUNNING" ? `${source.percent}%` : source.status === "FAILED" ? "Failed" : "Done"}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${source.status === "FAILED" ? "bg-red-500" : source.status === "PENDING" ? "bg-slate-200" : "bg-blue-600"}`}
+                    style={{ width: `${source.percent}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[10px] text-slate-500 mt-3">
+            The current catalogue remains available while the refresh runs. Slow or unavailable government sources are isolated from the student experience.
+          </p>
+        </div>
+      )}
+
+      {syncStatus?.status === "SUCCESS" && syncStatus.completedAt && Date.now() - new Date(syncStatus.completedAt).getTime() < 120000 && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-[10px] text-emerald-900 flex items-center gap-2">
+          <span className="font-bold">OK</span>
+          <span><strong>Official catalogue refresh complete.</strong> {syncStatus.uniqueRecords} unique scheme record(s) are now available.</span>
+        </div>
+      )}
       <SchemeFilter searchQuery={searchQuery} onSearchChange={setSearchQuery} selectedLevel={selectedLevel} onLevelChange={setSelectedLevel} />
 
       <div className="space-y-3 pt-1">

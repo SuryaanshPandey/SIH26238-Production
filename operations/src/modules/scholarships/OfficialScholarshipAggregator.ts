@@ -7,6 +7,7 @@ const ACADEMIC_YEAR = process.env.SCHOLARSHIP_ACADEMIC_YEAR || "2026-2027";
 const USER_AGENT = "SIH26238-Official-Scholarship-Aggregator/3.0";
 const MAX_DETAIL_PAGES = Number(process.env.SCHOLARSHIP_MAX_DETAIL_PAGES || 80);
 const MAX_GENERIC_DETAIL_PAGES = Number(process.env.SCHOLARSHIP_MAX_GENERIC_DETAIL_PAGES || 20);
+const DETAIL_PAGE_CAP = Math.max(1, Number(process.env.SCHOLARSHIP_DETAIL_PAGE_CAP || "12"));
 
 export type Confidence = "HIGH" | "MEDIUM" | "LOW";
 export type RunStatus = "SUCCESS" | "NO_RECORDS" | "FAILED";
@@ -71,6 +72,136 @@ export interface AggregationSummary {
   uniqueRecords: number;
   upserted: number;
   fetchedAt: string;
+}
+export type ScholarshipSyncStatus = "IDLE" | "RUNNING" | "SUCCESS" | "FAILED";
+export type ScholarshipSyncPhase = "DISCOVERING" | "ENRICHING" | "FINALIZING" | "COMPLETE";
+export type ScholarshipSyncSourceStatus = "PENDING" | "RUNNING" | "SUCCESS" | "NO_RECORDS" | "FAILED";
+
+export interface ScholarshipSyncSourceProgress {
+  sourceId: string;
+  sourceName: string;
+  status: ScholarshipSyncSourceStatus;
+  percent: number;
+  recordsFound: number;
+  recordsUpserted: number;
+  durationMs: number;
+  error?: string;
+}
+
+export interface ScholarshipSyncProgress {
+  jobId: string | null;
+  status: ScholarshipSyncStatus;
+  phase: ScholarshipSyncPhase;
+  percent: number;
+  currentSourceId: string | null;
+  currentSourceName: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  uniqueRecords: number;
+  upserted: number;
+  sources: ScholarshipSyncSourceProgress[];
+  error?: string;
+}
+
+let scholarshipSyncProgress: ScholarshipSyncProgress = {
+  jobId: null,
+  status: "IDLE",
+  phase: "COMPLETE",
+  percent: 0,
+  currentSourceId: null,
+  currentSourceName: null,
+  startedAt: null,
+  updatedAt: null,
+  completedAt: null,
+  uniqueRecords: 0,
+  upserted: 0,
+  sources: [],
+};
+
+function recalculateSyncPercent() {
+  if (!scholarshipSyncProgress.sources.length) return;
+  scholarshipSyncProgress.percent = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        scholarshipSyncProgress.sources.reduce((sum, source) => sum + source.percent, 0) /
+          scholarshipSyncProgress.sources.length,
+      ),
+    ),
+  );
+}
+
+function initializeScholarshipSyncProgress(defs: SourceDefinition[], jobId: string) {
+  const startedAt = new Date().toISOString();
+  scholarshipSyncProgress = {
+    jobId,
+    status: "RUNNING",
+    phase: "DISCOVERING",
+    percent: 0,
+    currentSourceId: null,
+    currentSourceName: null,
+    startedAt,
+    updatedAt: startedAt,
+    completedAt: null,
+    uniqueRecords: 0,
+    upserted: 0,
+    sources: defs.map((def) => ({
+      sourceId: def.id,
+      sourceName: def.name,
+      status: "PENDING",
+      percent: 0,
+      recordsFound: 0,
+      recordsUpserted: 0,
+      durationMs: 0,
+    })),
+  };
+}
+
+function updateScholarshipSyncSource(
+  sourceId: string,
+  patch: Partial<ScholarshipSyncSourceProgress>,
+  phase?: ScholarshipSyncPhase,
+) {
+  const source = scholarshipSyncProgress.sources.find((item) => item.sourceId === sourceId);
+  if (!source) return;
+  Object.assign(source, patch);
+  if (phase) scholarshipSyncProgress.phase = phase;
+  const active = scholarshipSyncProgress.sources.find((item) => item.status === "RUNNING");
+  scholarshipSyncProgress.currentSourceId = active?.sourceId || sourceId || null;
+  scholarshipSyncProgress.currentSourceName = active?.sourceName || source.sourceName || null;
+  scholarshipSyncProgress.updatedAt = new Date().toISOString();
+  recalculateSyncPercent();
+}
+
+function completeScholarshipSyncProgress(
+  status: "SUCCESS" | "FAILED",
+  summary?: AggregationSummary,
+  error?: string,
+) {
+  scholarshipSyncProgress.status = status;
+  scholarshipSyncProgress.phase = status === "SUCCESS" ? "COMPLETE" : "FINALIZING";
+  scholarshipSyncProgress.percent = status === "SUCCESS" ? 100 : scholarshipSyncProgress.percent;
+  scholarshipSyncProgress.uniqueRecords = summary?.uniqueRecords || scholarshipSyncProgress.uniqueRecords;
+  scholarshipSyncProgress.upserted = summary?.upserted || scholarshipSyncProgress.upserted;
+  scholarshipSyncProgress.error = error;
+  scholarshipSyncProgress.completedAt = new Date().toISOString();
+  scholarshipSyncProgress.updatedAt = scholarshipSyncProgress.completedAt;
+  scholarshipSyncProgress.currentSourceId = null;
+  scholarshipSyncProgress.currentSourceName = null;
+  if (status === "SUCCESS") {
+    for (const source of scholarshipSyncProgress.sources) {
+      if (source.status === "RUNNING" || source.status === "PENDING") {
+        source.status = "SUCCESS";
+        source.percent = 100;
+      }
+    }
+  }
+}
+
+function scholarshipSyncSnapshot(): ScholarshipSyncProgress {
+  return JSON.parse(JSON.stringify(scholarshipSyncProgress)) as ScholarshipSyncProgress;
 }
 
 function decodeEntities(value: string): string {
@@ -639,23 +770,23 @@ function parseGeneric(def: SourceDefinition, html: string, fetchedAt: string): N
 
 function sourceDefinitions(): SourceDefinition[] {
   const defs: SourceDefinition[] = [
-    { id: "nsp", name: "National Scholarship Portal (NSP)", url: process.env.NSP_SOURCE_URL || "https://scholarships.gov.in/All-Scholarships", kind: "NSP", priority: 100, enabled: process.env.NSP_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Number(process.env.NSP_MAX_DETAIL_PAGES || 100) },
-    { id: "myscheme", name: "myScheme â€” Government of India", url: process.env.MYSCHEME_SOURCE_URL || "https://www.myscheme.gov.in/search", kind: "MYSCHEME", priority: 80, enabled: process.env.MYSCHEME_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Number(process.env.MYSCHEME_MAX_DETAIL_PAGES || MAX_DETAIL_PAGES), sitemapUrl: process.env.MYSCHEME_SITEMAP_URL || "https://www.myscheme.gov.in/sitemap.xml" },
-    { id: "ugc", name: "University Grants Commission (UGC)", url: process.env.UGC_SOURCE_URL || "https://www.ugc.gov.in/Home/student_Corner", kind: "UGC", priority: 90, enabled: process.env.UGC_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 20 },
-    { id: "mota", name: "Ministry of Tribal Affairs", url: process.env.MOTA_SOURCE_URL || "https://tribal.nic.in/ScholarshiP.aspx", kind: "MOTA", priority: 95, enabled: process.env.MOTA_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 15 },
-    { id: "socialjustice", name: "Department of Social Justice & Empowerment", url: process.env.SOCIAL_JUSTICE_SOURCE_URL || "https://socialjustice.gov.in/schemes", kind: "SOCIAL_JUSTICE", priority: 90, enabled: process.env.SOCIAL_JUSTICE_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 20 },
-    { id: "moma", name: "Ministry of Minority Affairs", url: process.env.MOMA_SOURCE_URL || "https://www.minorityaffairs.gov.in/", kind: "MOMA", priority: 85, enabled: process.env.MOMA_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 10 },
-    { id: "depwd", name: "Department of Empowerment of Persons with Disabilities", url: process.env.DEPWD_SOURCE_URL || "https://depwd.gov.in/en/scholarship/", kind: "DEPWD", priority: 85, enabled: process.env.DEPWD_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 15 },
-    { id: "education", name: "Ministry of Education", url: process.env.EDUCATION_SOURCE_URL || "https://www.education.gov.in/national-scholarships-students", kind: "EDUCATION", priority: 85, enabled: process.env.EDUCATION_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 15 },
-    { id: "aicte", name: "All India Council for Technical Education (AICTE)", url: process.env.AICTE_SOURCE_URL || "https://www.aicte-india.org/schemes", kind: "GENERIC", priority: 88, enabled: process.env.AICTE_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 20 },
-    { id: "labour", name: "Ministry of Labour & Employment", url: process.env.LABOUR_SOURCE_URL || "https://labour.gov.in/", kind: "LABOUR", priority: 60, enabled: process.env.LABOUR_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: 10 },
+    { id: "nsp", name: "National Scholarship Portal (NSP)", url: process.env.NSP_SOURCE_URL || "https://scholarships.gov.in/All-Scholarships", kind: "NSP", priority: 100, enabled: process.env.NSP_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(Number(process.env.NSP_MAX_DETAIL_PAGES || 100), DETAIL_PAGE_CAP) },
+    { id: "myscheme", name: "myScheme â€” Government of India", url: process.env.MYSCHEME_SOURCE_URL || "https://www.myscheme.gov.in/search", kind: "MYSCHEME", priority: 80, enabled: process.env.MYSCHEME_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(Number(process.env.MYSCHEME_MAX_DETAIL_PAGES || MAX_DETAIL_PAGES), DETAIL_PAGE_CAP), sitemapUrl: process.env.MYSCHEME_SITEMAP_URL || "https://www.myscheme.gov.in/sitemap.xml" },
+    { id: "ugc", name: "University Grants Commission (UGC)", url: process.env.UGC_SOURCE_URL || "https://www.ugc.gov.in/Home/student_Corner", kind: "UGC", priority: 90, enabled: process.env.UGC_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(20, DETAIL_PAGE_CAP) },
+    { id: "mota", name: "Ministry of Tribal Affairs", url: process.env.MOTA_SOURCE_URL || "https://tribal.nic.in/ScholarshiP.aspx", kind: "MOTA", priority: 95, enabled: process.env.MOTA_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(15, DETAIL_PAGE_CAP) },
+    { id: "socialjustice", name: "Department of Social Justice & Empowerment", url: process.env.SOCIAL_JUSTICE_SOURCE_URL || "https://socialjustice.gov.in/schemes", kind: "SOCIAL_JUSTICE", priority: 90, enabled: process.env.SOCIAL_JUSTICE_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(20, DETAIL_PAGE_CAP) },
+    { id: "moma", name: "Ministry of Minority Affairs", url: process.env.MOMA_SOURCE_URL || "https://www.minorityaffairs.gov.in/", kind: "MOMA", priority: 85, enabled: process.env.MOMA_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(10, DETAIL_PAGE_CAP) },
+    { id: "depwd", name: "Department of Empowerment of Persons with Disabilities", url: process.env.DEPWD_SOURCE_URL || "https://depwd.gov.in/en/scholarship/", kind: "DEPWD", priority: 85, enabled: process.env.DEPWD_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(15, DETAIL_PAGE_CAP) },
+    { id: "education", name: "Ministry of Education", url: process.env.EDUCATION_SOURCE_URL || "https://www.education.gov.in/national-scholarships-students", kind: "EDUCATION", priority: 85, enabled: process.env.EDUCATION_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(15, DETAIL_PAGE_CAP) },
+    { id: "aicte", name: "All India Council for Technical Education (AICTE)", url: process.env.AICTE_SOURCE_URL || "https://www.aicte-india.org/schemes", kind: "GENERIC", priority: 88, enabled: process.env.AICTE_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(20, DETAIL_PAGE_CAP) },
+    { id: "labour", name: "Ministry of Labour & Employment", url: process.env.LABOUR_SOURCE_URL || "https://labour.gov.in/", kind: "LABOUR", priority: 60, enabled: process.env.LABOUR_SOURCE_ENABLED !== "false", detailCrawl: true, maxDetailPages: Math.min(10, DETAIL_PAGE_CAP) },
   ];
 
   try {
     const extra = JSON.parse(process.env.ADDITIONAL_OFFICIAL_SCHOLARSHIP_SOURCES_JSON || "[]") as Array<{ id: string; name: string; url: string; enabled?: boolean; maxDetailPages?: number }>;
     for (const item of extra) {
       if (!item?.id || !item?.name || !item?.url || !safeOfficialUrl(item.url)) continue;
-      defs.push({ id: item.id, name: item.name, url: item.url, kind: "GENERIC", priority: 50, enabled: item.enabled !== false, detailCrawl: true, maxDetailPages: item.maxDetailPages ?? MAX_GENERIC_DETAIL_PAGES });
+      defs.push({ id: item.id, name: item.name, url: item.url, kind: "GENERIC", priority: 50, enabled: item.enabled !== false, detailCrawl: true, maxDetailPages: Math.min(item.maxDetailPages ?? MAX_GENERIC_DETAIL_PAGES, DETAIL_PAGE_CAP) });
     }
   } catch {
     console.warn("[Scholarship Sources] Invalid ADDITIONAL_OFFICIAL_SCHOLARSHIP_SOURCES_JSON; ignoring custom sources.");
@@ -696,8 +827,17 @@ function dedupeRecords(records: NormalizedRecord[]): NormalizedRecord[] {
   return [...byKey.values()];
 }
 
-async function enrichRecords(def: SourceDefinition, seedRecords: NormalizedRecord[], links: string[], fetchedAt: string): Promise<NormalizedRecord[]> {
-  if (!def.detailCrawl || !links.length) return seedRecords;
+async function enrichRecords(
+  def: SourceDefinition,
+  seedRecords: NormalizedRecord[],
+  links: string[],
+  fetchedAt: string,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<NormalizedRecord[]> {
+  if (!def.detailCrawl || !links.length) {
+    onProgress?.(0, 0);
+    return seedRecords;
+  }
   const uniqueLinks = [...new Set(links)]
     .filter((url) => safeOfficialUrl(url) && !/\.pdf(?:$|\?)/i.test(url));
   if (!uniqueLinks.length) return seedRecords;
@@ -715,6 +855,8 @@ async function enrichRecords(def: SourceDefinition, seedRecords: NormalizedRecor
     ? uniqueLinks
     : Array.from({ length: Math.min(limit, uniqueLinks.length) }, (_, i) => uniqueLinks[(cursor + i) % uniqueLinks.length]);
 
+  onProgress?.(0, targets.length);
+
   const enriched: NormalizedRecord[] = [];
   const concurrency = 6;
   for (let offset = 0; offset < targets.length; offset += concurrency) {
@@ -726,6 +868,7 @@ async function enrichRecords(def: SourceDefinition, seedRecords: NormalizedRecor
       return parseDetailPage(def, url, html, fetchedAt, fallbackName);
     }));
     for (const record of results) if (record) enriched.push(record);
+    onProgress?.(Math.min(offset + batch.length, targets.length), targets.length);
   }
 
   try {
@@ -815,15 +958,100 @@ export class OfficialScholarshipAggregator {
     }));
   }
 
+  private async persistRecords(
+    records: NormalizedRecord[],
+    evidenceRecords: NormalizedRecord[],
+  ): Promise<{ upserted: number; primaryCounts: Map<string, number> }> {
+    let upserted = 0;
+    const primaryCounts = new Map<string, number>();
+    const credibleRecords = records.filter(isCredibleRecord);
+    const concurrency = 8;
+
+    for (let offset = 0; offset < credibleRecords.length; offset += concurrency) {
+      const batch = credibleRecords.slice(offset, offset + concurrency);
+      await Promise.all(batch.map(async (record) => {
+        const scholarshipId = `official_${crypto.createHash("sha1").update(`${record.canonicalKey}|${record.academicYear}`).digest("hex").slice(0, 24)}`;
+        const evidence = buildEvidence(record, evidenceRecords);
+        const externalReference = crypto.createHash("sha256").update(`${record.source.source_url}|${record.canonicalKey}|${record.academicYear}`).digest("hex");
+        const data = {
+          scholarshipId,
+          schemeName: record.schemeName,
+          schemeCode: `OFF-${crypto.createHash("sha1").update(`${record.canonicalKey}|${record.academicYear}`).digest("hex").slice(0, 52)}`,
+          schemeType: record.schemeType,
+          educationLevel: record.educationLevel,
+          academicYear: record.academicYear,
+          status: record.status,
+          jurisdiction: record.jurisdiction,
+          eligibilityRuleVersion: "OFFICIAL_SOURCE_PENDING_RULESET",
+          applicationStartDate: record.applicationStartDate,
+          applicationEndDate: record.applicationEndDate,
+          requiredDocumentTypes: JSON.stringify(record.requiredDocumentTypes),
+          benefitSummary: JSON.stringify(record.benefitSummary),
+          applicationChannel: record.applicationChannel,
+          incomeCeiling: record.incomeCeiling,
+          targetGroup: record.targetGroup,
+          description: record.description,
+          eligibilitySummary: record.eligibilitySummary,
+          sourceSystem: "OFFICIAL_AGGREGATED",
+          sourceUrl: record.source.source_url,
+          sourceFetchedAt: new Date(record.source.fetched_at),
+          externalReference,
+          sourceEvidence: JSON.stringify(evidence),
+        } as const;
+
+        try {
+          await prisma.scholarship.upsert({
+            where: { scholarshipId },
+            update: data,
+            create: data,
+          });
+        } catch {
+          const fallbackCode = `${record.source.source_id.toUpperCase()}-${slug(record.schemeName).slice(0, 42)}-${record.academicYear.replace(/\D/g, "")}`.slice(0, 60);
+          await prisma.scholarship.upsert({
+            where: { scholarshipId },
+            update: { ...data, schemeCode: fallbackCode },
+            create: { ...data, schemeCode: fallbackCode },
+          });
+        }
+
+        upserted += 1;
+        primaryCounts.set(
+          record.source.source_id,
+          (primaryCounts.get(record.source.source_id) || 0) + 1,
+        );
+      }));
+    }
+
+    return { upserted, primaryCounts };
+  }
   async syncAll(): Promise<AggregationSummary> {
     if (this.syncInFlight) return this.syncInFlight;
-    this.syncInFlight = this.runSync().finally(() => { this.syncInFlight = null; });
+    const defs = sourceDefinitions();
+    const jobId = `sch_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    initializeScholarshipSyncProgress(defs, jobId);
+    this.syncInFlight = this.runSync(jobId, defs)
+      .then((summary) => {
+        completeScholarshipSyncProgress("SUCCESS", summary);
+        return summary;
+      })
+      .catch((error) => {
+        completeScholarshipSyncProgress(
+          "FAILED",
+          undefined,
+          error instanceof Error ? error.message : String(error),
+        );
+        throw error;
+      })
+      .finally(() => { this.syncInFlight = null; });
     return this.syncInFlight;
   }
 
-  private async runSync(): Promise<AggregationSummary> {
-    const defs = sourceDefinitions();
-    const sourceResults = await Promise.all(defs.map((def) => this.syncSource(def)));
+  getSyncProgress(): ScholarshipSyncProgress {
+    return scholarshipSyncSnapshot();
+  }
+
+  private async runSync(jobId: string, defs: SourceDefinition[]): Promise<AggregationSummary> {
+    const sourceResults = await Promise.all(defs.map((def) => this.syncSource(def, jobId)));
     const fetchedAt = new Date().toISOString();
     const allRecords = sourceResults.flatMap((result) => result.records).filter(isCredibleRecord);
     const records = new Map<string, NormalizedRecord>();
@@ -833,52 +1061,13 @@ export class OfficialScholarshipAggregator {
       records.set(record.canonicalKey, existing ? mergeRecord(existing, record) : record);
     }
 
-    let upserted = 0;
-    const primaryCounts = new Map<string, number>();
-    for (const record of records.values()) {
-      const scholarshipId = `official_${crypto.createHash("sha1").update(`${record.canonicalKey}|${record.academicYear}`).digest("hex").slice(0, 24)}`;
-      const evidence = buildEvidence(record, allRecords);
-      const externalReference = crypto.createHash("sha256").update(`${record.source.source_url}|${record.canonicalKey}|${record.academicYear}`).digest("hex");
-      const data = {
-        scholarshipId,
-        schemeName: record.schemeName,
-        schemeCode: `OFF-${crypto.createHash("sha1").update(`${record.canonicalKey}|${record.academicYear}`).digest("hex").slice(0, 52)}`,
-        schemeType: record.schemeType,
-        educationLevel: record.educationLevel,
-        academicYear: record.academicYear,
-        status: record.status,
-        jurisdiction: record.jurisdiction,
-        eligibilityRuleVersion: "OFFICIAL_SOURCE_PENDING_RULESET",
-        applicationStartDate: record.applicationStartDate,
-        applicationEndDate: record.applicationEndDate,
-        requiredDocumentTypes: JSON.stringify(record.requiredDocumentTypes),
-        benefitSummary: JSON.stringify(record.benefitSummary),
-        applicationChannel: record.applicationChannel,
-        incomeCeiling: record.incomeCeiling,
-        targetGroup: record.targetGroup,
-        description: record.description,
-        eligibilitySummary: record.eligibilitySummary,
-        sourceSystem: "OFFICIAL_AGGREGATED",
-        sourceUrl: record.source.source_url,
-        sourceFetchedAt: new Date(record.source.fetched_at),
-        externalReference,
-        sourceEvidence: JSON.stringify(evidence),
-      } as const;
+    scholarshipSyncProgress.phase = "FINALIZING";
+    scholarshipSyncProgress.updatedAt = new Date().toISOString();
+    scholarshipSyncProgress.percent = Math.max(95, scholarshipSyncProgress.percent);
 
-      const prior = await prisma.scholarship.findUnique({ where: { scholarshipId } });
-      if (prior) {
-        await prisma.scholarship.update({ where: { scholarshipId }, data });
-      } else {
-        try {
-          await prisma.scholarship.create({ data });
-        } catch {
-          const fallbackCode = `${record.source.source_id.toUpperCase()}-${slug(record.schemeName).slice(0, 42)}-${record.academicYear.replace(/\D/g, "")}`.slice(0, 60);
-          await prisma.scholarship.create({ data: { ...data, schemeCode: fallbackCode } });
-        }
-      }
-      upserted++;
-      primaryCounts.set(record.source.source_id, (primaryCounts.get(record.source.source_id) || 0) + 1);
-    }
+    const persisted = await this.persistRecords([...records.values()], allRecords);
+    const upserted = persisted.upserted;
+    const primaryCounts = persisted.primaryCounts;
 
     const sourceSummaries = sourceResults.map((run) => ({
       ...run.summary,
@@ -900,11 +1089,23 @@ export class OfficialScholarshipAggregator {
       });
     }
 
+    scholarshipSyncProgress.uniqueRecords = records.size;
+    scholarshipSyncProgress.upserted = upserted;
+    scholarshipSyncProgress.updatedAt = new Date().toISOString();
+    for (const run of sourceSummaries) {
+      updateScholarshipSyncSource(run.sourceId, {
+        recordsFound: run.recordsFound,
+        recordsUpserted: run.recordsUpserted,
+        durationMs: run.durationMs,
+      });
+    }
+
     return { sources: sourceSummaries, uniqueRecords: records.size, upserted, fetchedAt };
   }
 
-  private async syncSource(def: SourceDefinition): Promise<{ summary: SourceRunSummary; records: NormalizedRecord[] }> {
+  private async syncSource(def: SourceDefinition, _jobId: string): Promise<{ summary: SourceRunSummary; records: NormalizedRecord[] }> {
     const started = Date.now();
+    updateScholarshipSyncSource(def.id, { status: "RUNNING", percent: 5 }, "DISCOVERING");
     const fetchedAt = new Date().toISOString();
     try {
       let html = "";
@@ -917,13 +1118,34 @@ export class OfficialScholarshipAggregator {
         html = sitemap;
       }
       let parsed = parseIndex(def, html, fetchedAt);
+      updateScholarshipSyncSource(def.id, {
+        percent: 15,
+        recordsFound: parsed.records.filter(isCredibleRecord).length,
+      }, "DISCOVERING");
 
       if (def.kind === "MYSCHEME" && parsed.links.length < 10 && def.sitemapUrl) {
         const sitemap = await fetchOptional(def.sitemapUrl, DEFAULT_TIMEOUT_MS);
         if (sitemap) parsed.links = [...new Set([...parsed.links, ...extractSchemeLinks(sitemap, def.url)])];
       }
 
-      const records = await enrichRecords(def, parsed.records, parsed.links, fetchedAt);
+      const discoveredRecords = parsed.records.filter(isCredibleRecord);
+
+      // Publish the fast catalogue immediately after discovery. Detail crawling
+      // continues afterwards and the existing final merge will enrich these rows.
+      const discoveredPersisted = discoveredRecords.length
+        ? await this.persistRecords(discoveredRecords, discoveredRecords)
+        : { upserted: 0, primaryCounts: new Map<string, number>() };
+
+      updateScholarshipSyncSource(def.id, {
+        percent: discoveredRecords.length ? 25 : 20,
+        recordsFound: discoveredRecords.length,
+        recordsUpserted: discoveredPersisted.upserted,
+      }, "ENRICHING");
+
+      const records = await enrichRecords(def, parsed.records, parsed.links, fetchedAt, (completed, total) => {
+        const detailPercent = total > 0 ? Math.round((completed / total) * 80) : 80;
+        updateScholarshipSyncSource(def.id, { percent: Math.min(95, 15 + detailPercent) }, "ENRICHING");
+      });
       const summary: SourceRunSummary = {
         sourceId: def.id,
         sourceName: def.name,
@@ -934,10 +1156,17 @@ export class OfficialScholarshipAggregator {
         recordsUpserted: 0,
         durationMs: Date.now() - started,
       };
+      updateScholarshipSyncSource(def.id, {
+        status: records.length ? "SUCCESS" : "NO_RECORDS",
+        percent: 100,
+        recordsFound: records.length,
+        durationMs: summary.durationMs,
+      });
       return { summary, records };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`[Scholarship Sources] ${def.name} unavailable: ${message}`);
+      updateScholarshipSyncSource(def.id, { status: "FAILED", percent: 100, durationMs: Date.now() - started, error: message });
       return {
         summary: { sourceId: def.id, sourceName: def.name, sourceUrl: def.url, status: "FAILED", fetchedAt, recordsFound: 0, recordsUpserted: 0, durationMs: Date.now() - started, error: message },
         records: [],

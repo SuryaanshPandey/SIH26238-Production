@@ -7,6 +7,33 @@ const CACHE_KEY = "sih26238.scholarships.catalogue.v3";
 const FRESH_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 24 * 60 * 60_000;
 
+export type ScholarshipSyncSourceStatus = "PENDING" | "RUNNING" | "SUCCESS" | "NO_RECORDS" | "FAILED";
+export interface ScholarshipSyncSourceProgress {
+  sourceId: string;
+  sourceName: string;
+  status: ScholarshipSyncSourceStatus;
+  percent: number;
+  recordsFound: number;
+  recordsUpserted: number;
+  durationMs: number;
+  error?: string;
+}
+export interface ScholarshipSyncStatus {
+  jobId: string | null;
+  status: "IDLE" | "RUNNING" | "SUCCESS" | "FAILED";
+  phase: "DISCOVERING" | "ENRICHING" | "FINALIZING" | "COMPLETE";
+  percent: number;
+  currentSourceId: string | null;
+  currentSourceName: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  uniqueRecords: number;
+  upserted: number;
+  sources: ScholarshipSyncSourceProgress[];
+  error?: string;
+}
+
 let inFlight: Promise<Scholarship[]> | null = null;
 let cache: { data: Scholarship[]; expiresAt: number; staleUntil: number; source: "LIVE" | "SNAPSHOT" } | null = null;
 let storageHydrated = false;
@@ -165,6 +192,10 @@ function refreshInBackground(): Promise<Scholarship[]> | null {
 
 export const scholarshipApi = {
   getCachedScholarships,
+
+  async getSyncStatus(): Promise<ScholarshipSyncStatus> {
+    return apiFetch<ScholarshipSyncStatus>(`${RIJVAN_API_URL}/scholarships/sync-status`);
+  },
 
   async getScholarships(forceRefresh = false): Promise<Scholarship[]> {
     hydrateCache();
