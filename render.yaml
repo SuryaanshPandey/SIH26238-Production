@@ -22,7 +22,7 @@ services:
     runtime: node
     plan: free
     rootDir: operations
-    buildCommand: npm ci --include=dev && npm run prisma:migrate && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: bash render-start.sh
     healthCheckPath: /api/v1/health
     envVars:
