@@ -32,7 +32,7 @@ let lastSyncAt = 0;
 let lastSyncAttemptAt = 0;
 
 let syncPromise: Promise<void> | null = null;
-let snapshotLoadPromise: Promise<void> | null = null;
+let snapshotLoadPromise: Promise<unknown> | null = null;
 
 /*
  * Prevent repeatedly reloading the bundled snapshot on every request.
