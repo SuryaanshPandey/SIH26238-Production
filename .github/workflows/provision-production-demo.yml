@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   provision:
-    name: Provision production demo data
+    name: Provision production demo database
     runs-on: ubuntu-latest
 
     env:
@@ -24,24 +24,125 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: render-stability
+          fetch-depth: 1
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: operations/package-lock.json
 
-      - name: Install operations dependencies
+      - name: Verify required secret exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "ERROR: GitHub Actions secret PRODUCTION_DATABASE_URL is missing."
+            echo ""
+            echo "Create this repository secret:"
+            echo "PRODUCTION_DATABASE_URL"
+            echo ""
+            echo "Do NOT put the database URL into the source code."
+            exit 1
+          fi
+
+          echo "Production database secret is present."
+
+      - name: Install Operations dependencies
         run: npm ci
 
-      - name: Generate Prisma client
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Verify production database connection
-        run: npx prisma db execute --stdin <<'SQL'
-          SELECT current_database(), current_user, now();
-        SQL
+      - name: Validate Prisma database connection
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Testing connection to production PostgreSQL..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            current_database() AS database_name,
+            current_user AS database_user,
+            now() AS server_time;
+          SQL
+
+          echo ""
+          echo "Production PostgreSQL connection succeeded."
+
+      - name: Inspect production database counts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Reading production database state..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            (SELECT COUNT(*) FROM "StudentAccount") AS student_accounts,
+            (SELECT COUNT(*) FROM "Scholarship") AS scholarships,
+            (SELECT COUNT(*) FROM "Application") AS applications,
+            (SELECT COUNT(*) FROM "Notification") AS notifications,
+            (SELECT COUNT(*) FROM "JagoAssistance") AS jago_records;
+          SQL
 
       - name: Provision production demo
         run: npx tsx scripts/provision-demo-production.ts
+
+      - name: Verify demo account exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Verifying provisioned demo account..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            "studentId",
+            "mobileNumber",
+            "email",
+            "category",
+            "state",
+            "district"
+          FROM "StudentAccount"
+          WHERE "mobileNumber" = '9000000001';
+          SQL
+
+      - name: Verify demo application exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Verifying demo applications..."
+
+          npx prisma db execute --stdin <<'SQL'
+          SELECT
+            "applicationId",
+            "studentId",
+            "academicYear",
+            "status",
+            "currentStage"
+          FROM "Application"
+          WHERE "studentId" = 'STU-2026-JH-88391'
+          ORDER BY "academicYear" DESC, "createdAt" DESC;
+          SQL
+
+      - name: Final success
+        shell: bash
+        run: |
+          echo ""
+          echo "=============================================================="
+          echo "PRODUCTION DEMO PROVISIONING VERIFIED"
+          echo "=============================================================="
+          echo "Mobile   : 9000000001"
+          echo "Password : LocalTest@2026!"
+          echo "Student  : STU-2026-JH-88391"
+          echo ""
+          echo "The production database now contains the demo account."
+          echo "Authentication remains database-backed."
+          echo "DEMO_MODE=false"
+          echo "REAL_DATA_MODE=true"
+          echo "=============================================================="
