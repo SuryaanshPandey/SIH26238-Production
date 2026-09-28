@@ -2,10 +2,12 @@ import {
   ApiClientError,
   apiFetch,
 } from "./http";
+
 import {
   clearSession,
   saveSession,
 } from "../auth/session";
+
 import {
   LIVE_BACKEND,
   RIJVAN_API_URL,
@@ -19,29 +21,24 @@ export interface AuthSession {
 }
 
 export interface LoginOptions {
-  onStatus?: (
-    message: string,
-  ) => void;
+  onStatus?: (message: string) => void;
 }
 
 /*
  * Render Free services can sleep after inactivity.
  *
- * The current documented Render behavior is that a sleeping
- * Free web service starts again when it receives a request,
- * with startup taking roughly a minute.
+ * The health probe is useful for waking the backend, but it MUST
+ * NOT be a hard dependency for authentication.
  *
- * We therefore explicitly warm the Operations service before
- * attempting authentication.
+ * If health fails, we continue to the real login request because
+ * that request itself can wake the Render service.
  */
-const HEALTH_TIMEOUT_MS =
-  10_000;
 
-const HEALTH_MAX_WAIT_MS =
-  85_000;
+const HEALTH_TIMEOUT_MS = 10_000;
 
-const HEALTH_RETRY_DELAY_MS =
-  2_500;
+const HEALTH_MAX_WAIT_MS = 30_000;
+
+const HEALTH_RETRY_DELAY_MS = 2_000;
 
 function sleep(
   milliseconds: number,
@@ -55,17 +52,17 @@ function sleep(
   );
 }
 
+/**
+ * Check whether Operations is alive.
+ *
+ * This intentionally uses a plain GET without Authorization,
+ * Content-Type, or custom headers so that it does not create
+ * an unnecessary browser preflight.
+ */
 async function checkOperationsHealth(
   signal: AbortSignal,
 ): Promise<boolean> {
   try {
-    /*
-     * Raw fetch intentionally avoids Authorization and
-     * Content-Type headers.
-     *
-     * That keeps this probe a simple CORS GET and avoids
-     * creating an unnecessary preflight request.
-     */
     const response =
       await fetch(
         `${RIJVAN_API_URL}/health`,
@@ -85,10 +82,6 @@ async function checkOperationsHealth(
         "content-type",
       ) || "";
 
-    /*
-     * Render's sleeping/loading response may not be
-     * our JSON health response.
-     */
     if (
       !contentType
         .toLowerCase()
@@ -113,16 +106,22 @@ async function checkOperationsHealth(
   }
 }
 
+/**
+ * Wake the Operations backend.
+ *
+ * IMPORTANT:
+ * Failure here does NOT fail login.
+ */
 export async function warmOperationsBackend(
   onStatus?: (
     message: string,
   ) => void,
-): Promise<void> {
+): Promise<boolean> {
   const startedAt =
     Date.now();
 
   onStatus?.(
-    "Connecting to secure services…",
+    "Starting a secure connection…",
   );
 
   while (
@@ -140,23 +139,26 @@ export async function warmOperationsBackend(
         HEALTH_TIMEOUT_MS,
       );
 
+    let ready =
+      false;
+
     try {
-      const ready =
+      ready =
         await checkOperationsHealth(
           controller.signal,
         );
-
-      if (ready) {
-        onStatus?.(
-          "Secure services are ready. Checking your account…",
-        );
-
-        return;
-      }
     } finally {
       window.clearTimeout(
         timeoutId,
       );
+    }
+
+    if (ready) {
+      onStatus?.(
+        "Secure services are ready. Verifying your account…",
+      );
+
+      return true;
     }
 
     const elapsed =
@@ -170,22 +172,47 @@ export async function warmOperationsBackend(
       break;
     }
 
-    onStatus?.(
-      "The secure backend is starting. Please wait…",
-    );
+    if (
+      elapsed <
+      8_000
+    ) {
+      onStatus?.(
+        "Waking the secure scholarship service…",
+      );
+    } else {
+      onStatus?.(
+        "The service is still waking up. Keeping the connection open…",
+      );
+    }
 
     await sleep(
       HEALTH_RETRY_DELAY_MS,
     );
   }
 
-  throw new ApiClientError(
-    "Secure services are taking longer than expected. Please try again in a moment.",
-    503,
-    "BACKEND_WARMUP_TIMEOUT",
+  /*
+   * CRITICAL:
+   *
+   * Do NOT throw here.
+   *
+   * The actual authentication request is the authoritative
+   * availability check and can itself wake a sleeping service.
+   */
+  onStatus?.(
+    "The service is taking a little longer. Trying secure sign-in now…",
   );
+
+  return false;
 }
 
+/**
+ * Decide whether an error is safe to retry.
+ *
+ * 401 is deliberately excluded.
+ *
+ * If the backend returned 401, the request reached the
+ * authentication service and the credentials were rejected.
+ */
 function isTransientLoginError(
   error: unknown,
 ): boolean {
@@ -195,12 +222,6 @@ function isTransientLoginError(
     return false;
   }
 
-  /*
-   * Do NOT retry 401.
-   *
-   * 401 means the backend reached the login
-   * service and rejected the credentials.
-   */
   return (
     error.status === 0 ||
     error.status === 502 ||
@@ -210,6 +231,50 @@ function isTransientLoginError(
       "REQUEST_TIMEOUT" ||
     error.code ===
       "NETWORK_ERROR"
+  );
+}
+
+/**
+ * Convert infrastructure failures into human-readable
+ * messages.
+ */
+function friendlyTransientMessage(
+  error: unknown,
+): string {
+  if (
+    error instanceof ApiClientError
+  ) {
+    if (
+      error.code ===
+        "REQUEST_TIMEOUT" ||
+      error.status === 504
+    ) {
+      return (
+        "The secure service is taking longer than expected to respond. Please keep this screen open and try again."
+      );
+    }
+
+    if (
+      error.status === 502 ||
+      error.status === 503
+    ) {
+      return (
+        "The scholarship service is waking up. Please try sign-in again in a moment."
+      );
+    }
+
+    if (
+      error.code ===
+      "NETWORK_ERROR"
+    ) {
+      return (
+        "The secure connection could not be completed. Check your internet connection and try again."
+      );
+    }
+  }
+
+  return (
+    "The secure sign-in service is temporarily unavailable. Please try again."
   );
 }
 
@@ -226,7 +291,9 @@ export const authApi = {
     }
 
     /*
-     * Wake Render before sending the actual login request.
+     * Try to wake Render first.
+     *
+     * Even if this fails, we CONTINUE to login.
      */
     await warmOperationsBackend(
       options?.onStatus,
@@ -237,10 +304,8 @@ export const authApi = {
       | null = null;
 
     /*
-     * A transient failure after warmup can still happen during
-     * the exact moment Render transitions from sleeping to live.
-     *
-     * Retry only transient failures.
+     * Three attempts are enough to handle a Render cold start
+     * without making the user wait indefinitely.
      */
     for (
       let attempt = 0;
@@ -250,8 +315,8 @@ export const authApi = {
       try {
         options?.onStatus?.(
           attempt === 0
-            ? "Signing you in…"
-            : "Connection restored. Retrying sign-in…",
+            ? "Verifying your student account…"
+            : `Connection restored. Retrying secure sign-in (${attempt + 1}/3)…`,
         );
 
         const session =
@@ -259,28 +324,51 @@ export const authApi = {
             `${RIJVAN_API_URL}/auth/student/login`,
             {
               method: "POST",
+
               body: JSON.stringify({
                 identifier,
                 password,
               }),
             },
             {
-              timeoutMs: 25_000,
+              /*
+               * Give Render enough time to wake.
+               */
+              timeoutMs:
+                35_000,
             },
           );
 
+        /*
+         * Authentication succeeded.
+         */
         saveSession(
           session,
         );
 
         options?.onStatus?.(
-          "Login successful.",
+          "Login successful. Opening your scholarship dashboard…",
+        );
+
+        /*
+         * Small success-state delay so the user actually sees
+         * the successful animation before navigation.
+         */
+        await sleep(
+          450,
         );
 
         return session;
-      } catch (error) {
-        lastError = error;
+      } catch (
+        error
+      ) {
+        lastError =
+          error;
 
+        /*
+         * Credential errors such as 401 must immediately reach
+         * the UI. Never hide them behind retries.
+         */
         if (
           !isTransientLoginError(
             error,
@@ -289,11 +377,21 @@ export const authApi = {
           throw error;
         }
 
+        /*
+         * No more attempts.
+         */
         if (
-          attempt >= 2
+          attempt >=
+          2
         ) {
           break;
         }
+
+        options?.onStatus?.(
+          attempt === 0
+            ? "The service is still waking up. Retrying securely…"
+            : "Reconnecting to the scholarship service…",
+        );
 
         await sleep(
           1_500 +
@@ -303,13 +401,12 @@ export const authApi = {
       }
     }
 
-    throw (
-      lastError ||
-      new ApiClientError(
-        "Login failed. Please try again.",
-        503,
-        "LOGIN_UNAVAILABLE",
-      )
+    throw new ApiClientError(
+      friendlyTransientMessage(
+        lastError,
+      ),
+      503,
+      "LOGIN_UNAVAILABLE",
     );
   },
 
@@ -325,9 +422,6 @@ export const authApi = {
       );
     }
 
-    /*
-     * Registration gets the same warm-up protection.
-     */
     await warmOperationsBackend();
 
     const session =
@@ -335,12 +429,14 @@ export const authApi = {
         `${RIJVAN_API_URL}/auth/student/register`,
         {
           method: "POST",
+
           body: JSON.stringify(
             payload,
           ),
         },
         {
-          timeoutMs: 25_000,
+          timeoutMs:
+            35_000,
         },
       );
 
