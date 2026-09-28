@@ -1,0 +1,47 @@
+name: Provision Production Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision production demo data
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      CONFIRM_PRODUCTION_DEMO: SIH26238-PRODUCTION-DEMO-2026
+
+    defaults:
+      run:
+        working-directory: operations
+
+    steps:
+      - name: Checkout render-stability
+        uses: actions/checkout@v4
+        with:
+          ref: render-stability
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: operations/package-lock.json
+
+      - name: Install operations dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Verify production database connection
+        run: npx prisma db execute --stdin <<'SQL'
+          SELECT current_database(), current_user, now();
+        SQL
+
+      - name: Provision production demo
+        run: npx tsx scripts/provision-demo-production.ts
