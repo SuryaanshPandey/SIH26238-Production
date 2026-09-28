@@ -34,6 +34,18 @@ services:
         value: "false"
       - key: REAL_DATA_MODE
         value: "true"
+      - key: SCHOLARSHIP_AUTO_SYNC
+        value: "false"
+      - key: VERIFICATION_PROVIDER
+        value: "http"
+      - key: DOCUMENT_PROVIDER
+        value: "http"
+      - key: SCHOLARSHIP_DETAIL_CONCURRENCY
+        value: "2"
+      - key: SCHOLARSHIP_DB_CONCURRENCY
+        value: "2"
+      - key: SCHOLARSHIP_MAX_RESPONSE_BYTES
+        value: "8388608"
       - key: DATABASE_URL
         sync: false
       - key: STUDENT_APP_ORIGIN

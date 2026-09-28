@@ -28,6 +28,14 @@ const FAILURE_RETRY_MS = Number(
   process.env.NSP_FAILURE_RETRY_MS || 60 * 1000,
 );
 
+/*
+ * Background crawling of official sources is opt-in. On small hosts
+ * (e.g. Render free tier) it can starve the event loop and make
+ * health checks time out. Enable with SCHOLARSHIP_AUTO_SYNC=true.
+ */
+const AUTO_SYNC_ENABLED =
+  process.env.SCHOLARSHIP_AUTO_SYNC !== "false";
+
 let lastSyncAt = 0;
 let lastSyncAttemptAt = 0;
 
@@ -344,7 +352,9 @@ export class ScholarshipService {
       live.length > 0 ||
       snapshot.length > 0
     ) {
-      void this.startLiveSync();
+      if (AUTO_SYNC_ENABLED) {
+        void this.startLiveSync();
+      }
       return;
     }
 
@@ -357,7 +367,9 @@ export class ScholarshipService {
      * Never block the student-facing request on external
      * government websites.
      */
-    void this.startLiveSync();
+    if (AUTO_SYNC_ENABLED) {
+      void this.startLiveSync();
+    }
 
     /*
      * If no snapshot could be loaded and live data does not
@@ -459,13 +471,15 @@ export class ScholarshipService {
      * Otherwise use the official NSP snapshot.
      */
     const sourceSystems =
-      aggregatedCount > 0 ||
-      nspCount > 0
-        ? [
-            "OFFICIAL_AGGREGATED",
-            "NSP",
-          ]
-        : ["NSP_SNAPSHOT"];
+      process.env.REAL_DATA_MODE === "false"
+        ? ["LOCAL"]
+        : aggregatedCount > 0 ||
+            nspCount > 0
+          ? [
+              "OFFICIAL_AGGREGATED",
+              "NSP",
+            ]
+          : ["NSP_SNAPSHOT"];
 
     const rows =
       await prisma.scholarship.findMany({

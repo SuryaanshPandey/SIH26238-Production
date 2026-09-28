@@ -148,7 +148,32 @@ function LoginContent() {
         </CardHeader>
 
         <CardContent>
-          {sessionExpired && (
+          <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3">
+            <div className="text-xs font-bold text-blue-900 mb-1">
+              Demo Testing Account
+            </div>
+
+            <p className="text-[11px] text-blue-800 leading-snug mb-2">
+              Use this public demo account to explore the complete scholarship workflow.
+            </p>
+
+            <div className="space-y-1 text-[11px]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-blue-700">Mobile Number</span>
+                <span className="font-mono font-semibold text-blue-950">
+                  9000000001
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-blue-700">Password</span>
+                <span className="font-mono font-semibold text-blue-950">
+                  LocalTest@2026!
+                </span>
+              </div>
+            </div>
+          </div>
+{sessionExpired && (
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
               Your previous session expired. Please
               sign in again.

@@ -18,3 +18,4 @@ student-app/.next/
 *.jks
 *.keystore
 supabase/.temp/
+/verification/data/documents/

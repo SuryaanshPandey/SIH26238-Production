@@ -9,6 +9,34 @@ const MAX_DETAIL_PAGES = Number(process.env.SCHOLARSHIP_MAX_DETAIL_PAGES || 80);
 const MAX_GENERIC_DETAIL_PAGES = Number(process.env.SCHOLARSHIP_MAX_GENERIC_DETAIL_PAGES || 20);
 const DETAIL_PAGE_CAP = Math.max(1, Number(process.env.SCHOLARSHIP_DETAIL_PAGE_CAP || "12"));
 
+function boundedPositiveIntEnv(name: string, fallback: number, max: number): number {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.floor(value), max);
+}
+
+const DETAIL_CONCURRENCY = boundedPositiveIntEnv("SCHOLARSHIP_DETAIL_CONCURRENCY", 2, 2);
+const DB_WRITE_CONCURRENCY = boundedPositiveIntEnv("SCHOLARSHIP_DB_CONCURRENCY", 2, 2);
+const MAX_RESPONSE_BYTES = boundedPositiveIntEnv("SCHOLARSHIP_MAX_RESPONSE_BYTES", 8 * 1024 * 1024, 16 * 1024 * 1024);
+
+class ScholarshipFetchError extends Error {
+  constructor(public readonly status: number) {
+    super(`HTTP ${status}`);
+    this.name = "ScholarshipFetchError";
+  }
+}
+
+function shouldRetryFetchError(error: unknown): boolean {
+  if (error instanceof ScholarshipFetchError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+  return true;
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 export type Confidence = "HIGH" | "MEDIUM" | "LOW";
 export type RunStatus = "SUCCESS" | "NO_RECORDS" | "FAILED";
 
@@ -317,22 +345,28 @@ function status(start: Date | null, end: Date | null): string {
 }
 
 function parseAmount(value: string): number | null {
-  const normalized = value.trim().toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ");
-  const match = normalized.match(/([0-9]+(?:\.[0-9]+)?)\s*(crore|crores|lakh|lakhs|lac|lacs|thousand|k)?/i);
-  if (!match) return null;
-  const numeric = Number(match[1]);
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  const numericMatch = normalized.match(/([0-9]+(?:,[0-9]{2,3})+|[0-9]+(?:\.[0-9]+)?)/);
+  if (!numericMatch) return null;
+
+  const numericText = numericMatch[1];
+  const numeric = Number(numericText.replace(/,/g, ""));
   if (!Number.isFinite(numeric)) return null;
+
+  const suffix = normalized
+    .slice((numericMatch.index || 0) + numericText.length)
+    .match(/^\s*(crore|crores|lakh|lakhs|lac|lacs|thousand|k)\b/i)?.[1]?.toLowerCase();
   const multiplier = ({
     crore: 10000000, crores: 10000000,
     lakh: 100000, lakhs: 100000, lac: 100000, lacs: 100000,
     thousand: 1000, k: 1000,
-  } as Record<string, number | undefined>)[(match[2] || "").toLowerCase()] || 1;
+  } as Record<string, number | undefined>)[suffix || ""] || 1;
+
   const amount = numeric * multiplier;
   return Number.isFinite(amount) ? amount : null;
 }
-
 function extractLargestAmount(text: string): number | null {
-  const matches = [...text.matchAll(/(?:â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/gi)]
+  const matches = [...text.matchAll(/(?:\u20B9|â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/gi)]
     .map((m) => parseAmount(m[1]))
     .filter((v): v is number => v !== null && v >= 100);
   if (!matches.length) return null;
@@ -341,8 +375,8 @@ function extractLargestAmount(text: string): number | null {
 
 function extractIncomeCeiling(text: string): number | null {
   const patterns = [
-    /(?:annual|yearly)?\s*(?:family|parent(?:s)?|guardian(?:'s)?|household)?\s*income[^.]{0,220}?(?:does not exceed|not exceed|less than|up to|below)[^.]{0,100}?(?:â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/i,
-    /(?:income)[^.]{0,220}?(?:â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)\s*(?:per year|per annum|annually|a year)/i,
+    /(?:annual|yearly)?\s*(?:family|parent(?:s)?|guardian(?:'s)?|household)?\s*income[^.]{0,220}?(?:does not exceed|not exceed|less than|up to|below)[^.]{0,100}?(?:\u20B9|â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)/i,
+    /(?:income)[^.]{0,220}?(?:\u20B9|â‚¹|rs\.?|inr)\s*([\d,.]+(?:\s*(?:crores?|lakhs?|lacs?|thousand|k))?)\s*(?:per year|per annum|annually|a year)/i,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -448,7 +482,7 @@ function canonicalKeyFor(name: string, jurisdiction: string): string {
 }
 
 function extractEligibility(text: string): string {
-  const window = sectionWindow(text, /eligibility|who can apply|eligible/i, [/benefits?/i, /application process/i, /documents? required/i, /frequently asked/i], 3600);
+  const window = sectionWindow(text, /\b(?:eligibility(?:\s+information|\s+criteria)?|who\s+can\s+apply)\b/i, [/benefits?/i, /application process/i, /documents? required/i, /frequently asked/i], 3600);
   return window.replace(/^eligibility(?:\s+information|\s+criteria)?\s*:?[\s]*/i, "").slice(0, 2800).trim();
 }
 
@@ -547,15 +581,34 @@ async function fetchUrl(url: string, timeoutMs: number): Promise<string> {
         signal: controller.signal,
       });
       if (!safeOfficialUrl(res.url)) throw new Error(`Redirected to a non-official host: ${res.url}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.text();
+      if (!res.ok) throw new ScholarshipFetchError(res.status);
+
+      const contentLength = Number(res.headers.get("content-length") || 0);
+      if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+        throw new Error(`Response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+      }
+
+      const bytes = await res.arrayBuffer();
+      if (bytes.byteLength > MAX_RESPONSE_BYTES) {
+        throw new Error(`Response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      const charset = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] || "utf-8";
+      let body: string;
+      try {
+        body = new TextDecoder(charset).decode(bytes);
+      } catch {
+        body = new TextDecoder("utf-8").decode(bytes);
+      }
       if (!body.trim()) throw new Error("Empty response body");
       return body;
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+      if (!shouldRetryFetchError(error) || attempt >= attempts) {
+        break;
       }
+      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
     } finally {
       clearTimeout(timer);
     }
@@ -607,8 +660,8 @@ function parseDetailPage(def: SourceDefinition, url: string, html: string, fetch
 
   const window = extractApplicationWindow(text);
   const detailBenefit = extractBenefits(text);
-  const eligibilityText = sectionWindow(text, /eligibility|who can apply|eligible/i, [/application process/i, /documents? required/i, /benefits?/i, /frequently asked/i], 4200);
-  const incomeCeiling = extractIncomeCeiling(eligibilityText);
+  const eligibilityText = sectionWindow(text, /\b(?:eligibility(?:\s+information|\s+criteria)?|who\s+can\s+apply)\b/i, [/application process/i, /documents? required/i, /benefits?/i, /frequently asked/i], 4200);
+  const incomeCeiling = extractIncomeCeiling(eligibilityText) ?? extractIncomeCeiling(text);
   const channel = /application process|apply online|online/i.test(text) ? "ONLINE_PORTAL" : "DIRECT_BENEFIT";
   const hrefEvidence = sourceEvidence(def, fetchedAt, `${def.kind}_DETAIL_PAGE`, def.kind === "MYSCHEME" || def.kind === "NSP" ? "HIGH" : "MEDIUM", url);
   return toRecord(def, fetchedAt, title, {
@@ -858,7 +911,7 @@ async function enrichRecords(
   onProgress?.(0, targets.length);
 
   const enriched: NormalizedRecord[] = [];
-  const concurrency = 6;
+  const concurrency = DETAIL_CONCURRENCY;
   for (let offset = 0; offset < targets.length; offset += concurrency) {
     const batch = targets.slice(offset, offset + concurrency);
     const results = await Promise.all(batch.map(async (url) => {
@@ -869,6 +922,7 @@ async function enrichRecords(
     }));
     for (const record of results) if (record) enriched.push(record);
     onProgress?.(Math.min(offset + batch.length, targets.length), targets.length);
+    await yieldToEventLoop();
   }
 
   try {
@@ -965,7 +1019,7 @@ export class OfficialScholarshipAggregator {
     let upserted = 0;
     const primaryCounts = new Map<string, number>();
     const credibleRecords = records.filter(isCredibleRecord);
-    const concurrency = 8;
+    const concurrency = DB_WRITE_CONCURRENCY;
 
     for (let offset = 0; offset < credibleRecords.length; offset += concurrency) {
       const batch = credibleRecords.slice(offset, offset + concurrency);
@@ -1005,7 +1059,13 @@ export class OfficialScholarshipAggregator {
             update: data,
             create: data,
           });
-        } catch {
+        } catch (error) {
+          const code =
+            error && typeof error === "object" && "code" in error
+              ? String((error as { code?: unknown }).code)
+              : "";
+          if (code !== "P2002") throw error;
+
           const fallbackCode = `${record.source.source_id.toUpperCase()}-${slug(record.schemeName).slice(0, 42)}-${record.academicYear.replace(/\D/g, "")}`.slice(0, 60);
           await prisma.scholarship.upsert({
             where: { scholarshipId },
@@ -1020,6 +1080,7 @@ export class OfficialScholarshipAggregator {
           (primaryCounts.get(record.source.source_id) || 0) + 1,
         );
       }));
+      await yieldToEventLoop();
     }
 
     return { upserted, primaryCounts };
@@ -1051,7 +1112,11 @@ export class OfficialScholarshipAggregator {
   }
 
   private async runSync(jobId: string, defs: SourceDefinition[]): Promise<AggregationSummary> {
-    const sourceResults = await Promise.all(defs.map((def) => this.syncSource(def, jobId)));
+    const sourceResults: Array<{ summary: SourceRunSummary; records: NormalizedRecord[] }> = [];
+    for (const def of defs) {
+      sourceResults.push(await this.syncSource(def, jobId));
+      await yieldToEventLoop();
+    }
     const fetchedAt = new Date().toISOString();
     const allRecords = sourceResults.flatMap((result) => result.records).filter(isCredibleRecord);
     const records = new Map<string, NormalizedRecord>();
@@ -1221,5 +1286,6 @@ export const officialScholarshipTestHelpers = {
   extractApplicationWindow,
   extractEligibility,
   parseMySchemeIndex,
+  parseNsp,
   extractTableRows,
 };

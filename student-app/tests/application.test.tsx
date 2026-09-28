@@ -19,6 +19,7 @@ describe("Application Lifecycle & Payment Separation", () => {
       course: "B.Tech Computer Science",
       is_hosteller: true,
       submitted_document_ids: ["DOC-ST-001", "DOC-ST-003"],
+      consent_granted: true,
     });
 
     expect(newApp.application_id).toMatch(/^APP-2026-ST-\d+$/);
