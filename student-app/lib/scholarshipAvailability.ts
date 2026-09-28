@@ -24,7 +24,7 @@ function parseDate(value: string | null | undefined): number | null {
  * the published dates, when present, still contain the current moment.
  */
 export function getScholarshipApplicationAvailability(
-  scheme: Scholarship,
+  scheme: Scholarship | null,
   now = Date.now(),
 ): ScholarshipApplicationAvailability {
   if (scheme.status === "INFORMATION_ONLY") {
