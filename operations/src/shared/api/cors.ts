@@ -1,9 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-const ALLOWED_METHODS =
-  "GET,POST,PATCH,PUT,DELETE,OPTIONS";
+const METHODS =
+  "GET, POST, PATCH, PUT, DELETE, OPTIONS";
 
-const DEFAULT_ALLOWED_HEADERS = [
+const DEFAULT_HEADERS = [
   "Accept",
   "Content-Type",
   "Authorization",
@@ -37,14 +40,18 @@ function getAllowedOrigins(): Set<string> {
 
   configured
     .split(",")
-    .map((origin) =>
-      normalizeOrigin(origin),
-    )
+    .map(normalizeOrigin)
     .filter(Boolean)
-    .forEach((origin) =>
-      origins.add(origin),
-    );
+    .forEach((origin) => {
+      origins.add(origin);
+    });
 
+  /*
+   * Production Student frontend.
+   *
+   * Keep this hard-coded as a safety fallback so a missing
+   * Render environment variable cannot break production CORS.
+   */
   origins.add(
     PRODUCTION_STUDENT_ORIGIN,
   );
@@ -68,85 +75,45 @@ export function isAllowedOrigin(
   );
 }
 
-function getAllowedHeaders(
+function getRequestedHeaders(
   req: NextRequest,
 ): string {
-  const requestedHeaders =
+  const requested =
     req.headers.get(
       "access-control-request-headers",
     );
 
-  if (!requestedHeaders) {
-    return DEFAULT_ALLOWED_HEADERS.join(
-      ", ",
-    );
+  if (!requested) {
+    return DEFAULT_HEADERS.join(", ");
   }
-
-  const requested = requestedHeaders
-    .split(",")
-    .map((header) => header.trim())
-    .filter(Boolean);
 
   const merged = new Set<string>(
-    DEFAULT_ALLOWED_HEADERS,
+    DEFAULT_HEADERS,
   );
 
-  for (const header of requested) {
-    merged.add(header);
-  }
+  requested
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .forEach((value) => {
+      merged.add(value);
+    });
 
-  return Array.from(merged).join(
-    ", ",
-  );
-}
-
-function getRequestedMethod(
-  req: NextRequest,
-): string {
-  const requestedMethod =
-    req.headers.get(
-      "access-control-request-method",
-    );
-
-  if (!requestedMethod) {
-    return ALLOWED_METHODS;
-  }
-
-  const method =
-    requestedMethod
-      .trim()
-      .toUpperCase();
-
-  if (
-    [
-      "GET",
-      "POST",
-      "PATCH",
-      "PUT",
-      "DELETE",
-      "OPTIONS",
-    ].includes(method)
-  ) {
-    return ALLOWED_METHODS;
-  }
-
-  return ALLOWED_METHODS;
+  return Array.from(merged).join(", ");
 }
 
 export function addCorsHeaders(
   req: NextRequest,
   response: NextResponse,
 ): NextResponse {
-  const origin =
-    normalizeOrigin(
-      req.headers.get("origin"),
-    );
+  const origin = normalizeOrigin(
+    req.headers.get("origin"),
+  );
 
-  /*
-   * Only grant browser CORS access to explicitly
-   * allowed frontend origins.
-   */
-  if (origin && isAllowedOrigin(origin)) {
+  if (
+    origin &&
+    isAllowedOrigin(origin)
+  ) {
     response.headers.set(
       "Access-Control-Allow-Origin",
       origin,
@@ -154,20 +121,14 @@ export function addCorsHeaders(
 
     response.headers.set(
       "Access-Control-Allow-Methods",
-      getRequestedMethod(req),
+      METHODS,
     );
 
     response.headers.set(
       "Access-Control-Allow-Headers",
-      getAllowedHeaders(req),
+      getRequestedHeaders(req),
     );
 
-    /*
-     * The application authenticates using Authorization
-     * headers rather than relying exclusively on cookies.
-     * Keeping this enabled also permits future authenticated
-     * browser requests that use credentials.
-     */
     response.headers.set(
       "Access-Control-Allow-Credentials",
       "true",
@@ -184,10 +145,6 @@ export function addCorsHeaders(
     );
   }
 
-  /*
-   * Tell caches/CDNs that the response varies according
-   * to the requesting browser origin.
-   */
   response.headers.set(
     "Vary",
     "Origin",
@@ -199,19 +156,24 @@ export function addCorsHeaders(
 export function createCorsPreflightResponse(
   req: NextRequest,
 ): NextResponse {
-  const origin =
-    normalizeOrigin(
-      req.headers.get("origin"),
-    );
+  const origin = normalizeOrigin(
+    req.headers.get("origin"),
+  );
 
   /*
-   * Reject unknown browser origins at the preflight layer.
-   * Browsers will block the actual request in that case.
+   * Requests without an Origin header are not browser CORS
+   * requests. Let them receive an ordinary empty response.
    */
-  if (
-    origin &&
-    !isAllowedOrigin(origin)
-  ) {
+  if (!origin) {
+    return new NextResponse(null, {
+      status: 204,
+    });
+  }
+
+  /*
+   * Explicitly reject untrusted browser origins.
+   */
+  if (!isAllowedOrigin(origin)) {
     const response =
       new NextResponse(null, {
         status: 403,
@@ -230,8 +192,40 @@ export function createCorsPreflightResponse(
       status: 204,
     });
 
-  return addCorsHeaders(
-    req,
-    response,
+  response.headers.set(
+    "Access-Control-Allow-Origin",
+    origin,
   );
+
+  response.headers.set(
+    "Access-Control-Allow-Methods",
+    METHODS,
+  );
+
+  response.headers.set(
+    "Access-Control-Allow-Headers",
+    getRequestedHeaders(req),
+  );
+
+  response.headers.set(
+    "Access-Control-Allow-Credentials",
+    "true",
+  );
+
+  response.headers.set(
+    "Access-Control-Max-Age",
+    "600",
+  );
+
+  response.headers.set(
+    "Access-Control-Expose-Headers",
+    "X-Request-ID",
+  );
+
+  response.headers.set(
+    "Vary",
+    "Origin",
+  );
+
+  return response;
 }
