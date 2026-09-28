@@ -17,7 +17,7 @@ services:
       - key: NEXT_PUBLIC_VERIFICATION_API_URL
         value: "https://sih26238-verification-v25-free.onrender.com"
 
-  - type: web
+   - type: web
     name: sih26238-operations-v25-free
     runtime: node
     plan: free
