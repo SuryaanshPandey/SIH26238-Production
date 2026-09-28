@@ -2,30 +2,72 @@ plugins {
     id 'com.android.application'
 }
 
-def studentAppUrl = (project.findProperty('studentAppUrl') ?: 'http://10.0.2.2:3000').toString().trim()
-def allowCleartext = (project.findProperty('allowCleartext') ?: 'true').toString().toBoolean()
-def mobileOpsUrl = (project.findProperty('mobileOpsUrl') ?: '').toString().trim()
-def mobileVerificationUrl = (project.findProperty('mobileVerificationUrl') ?: '').toString().trim()
+def studentAppUrl = (
+        project.findProperty('studentAppUrl')
+                ?: 'https://sih26238-student-v25-free.onrender.com'
+).toString().trim()
+
+def allowCleartext = (
+        project.findProperty('allowCleartext')
+                ?: 'false'
+).toString().toBoolean()
+
+def mobileOpsUrl = (
+        project.findProperty('mobileOpsUrl')
+                ?: 'https://sih26238-operations-v25-free.onrender.com/api/v1'
+).toString().trim()
+
+def mobileVerificationUrl = (
+        project.findProperty('mobileVerificationUrl')
+                ?: 'https://sih26238-verification-v25-free.onrender.com'
+).toString().trim()
 
 def quoteBuildConfig = { String value ->
-    return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return '"' +
+            value
+                    .replace('\\', '\\\\')
+                    .replace('"', '\\"') +
+            '"'
 }
 
 android {
     namespace 'in.sih26238.mobile'
+
     compileSdk 37
 
     defaultConfig {
         applicationId 'in.sih26238.mobile'
+
         minSdk 26
         targetSdk 37
-        versionCode 25
-        versionName '25.0.0'
 
-        buildConfigField 'String', 'STUDENT_APP_URL', quoteBuildConfig(studentAppUrl)
-        buildConfigField 'String', 'MOBILE_OPS_URL', quoteBuildConfig(mobileOpsUrl)
-        buildConfigField 'String', 'MOBILE_VERIFICATION_URL', quoteBuildConfig(mobileVerificationUrl)
-        manifestPlaceholders.allowCleartextTraffic = allowCleartext
+        /*
+         * Incremented so a fresh production APK is clearly distinguishable
+         * from earlier locally-built/test APKs.
+         */
+        versionCode 26
+        versionName '25.0.1'
+
+        buildConfigField(
+                'String',
+                'STUDENT_APP_URL',
+                quoteBuildConfig(studentAppUrl)
+        )
+
+        buildConfigField(
+                'String',
+                'MOBILE_OPS_URL',
+                quoteBuildConfig(mobileOpsUrl)
+        )
+
+        buildConfigField(
+                'String',
+                'MOBILE_VERIFICATION_URL',
+                quoteBuildConfig(mobileVerificationUrl)
+        )
+
+        manifestPlaceholders.allowCleartextTraffic =
+                allowCleartext
     }
 
     buildFeatures {
@@ -37,10 +79,17 @@ android {
             applicationIdSuffix '.debug'
             versionNameSuffix '-debug'
         }
+
         release {
-            // Installable by default for SIH/demo distribution. Replace with a real
-            // release keystore before Play Store/public production distribution.
+            /*
+             * Installable SIH/demo APK.
+             *
+             * This uses the debug signing key deliberately for direct
+             * installation/demo distribution. A Play Store release
+             * requires replacing this with a dedicated release keystore.
+             */
             signingConfig signingConfigs.debug
+
             minifyEnabled false
             shrinkResources false
         }
@@ -48,7 +97,10 @@ android {
 
     packaging {
         resources {
-            excludes += ['META-INF/LICENSE*', 'META-INF/NOTICE*']
+            excludes += [
+                    'META-INF/LICENSE*',
+                    'META-INF/NOTICE*'
+            ]
         }
     }
 }
