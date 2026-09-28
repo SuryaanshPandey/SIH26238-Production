@@ -1,4 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
+
 import {
   addCorsHeaders,
   createCorsPreflightResponse,
@@ -6,12 +10,10 @@ import {
 
 export function middleware(
   req: NextRequest,
-) {
+): NextResponse {
   /*
-   * Browser CORS preflight.
-   *
-   * Handle this explicitly before the request
-   * reaches authentication/business logic.
+   * Handle CORS preflight before any API route,
+   * authentication middleware, or business logic.
    */
   if (req.method === "OPTIONS") {
     return createCorsPreflightResponse(
@@ -20,10 +22,17 @@ export function middleware(
   }
 
   /*
-   * Add CORS headers to every API response.
+   * Every API response gets CORS headers,
+   * including:
    *
-   * This includes successful responses and
-   * error responses such as 401/403/404.
+   * 200
+   * 201
+   * 400
+   * 401
+   * 403
+   * 404
+   * 409
+   * 500
    */
   return addCorsHeaders(
     req,
@@ -32,5 +41,7 @@ export function middleware(
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: [
+    "/api/:path*",
+  ],
 };
