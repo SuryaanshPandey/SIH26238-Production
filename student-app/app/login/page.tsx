@@ -7,7 +7,6 @@ import React, {
 } from "react";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 
 import {
@@ -85,9 +84,6 @@ function getPhaseFromStatus(
 }
 
 function LoginContent() {
-  const router =
-    useRouter();
-
   const searchParams =
     useSearchParams();
 
@@ -117,6 +113,12 @@ function LoginContent() {
     );
 
   useEffect(() => {
+    /*
+     * Clear a previous session only when the login page is first mounted.
+     *
+     * This must NOT run after successful authentication because the dashboard
+     * navigation depends on the session created by authApi.login().
+     */
     clearSession();
   }, []);
 
@@ -214,6 +216,14 @@ function LoginContent() {
       );
 
       try {
+        /*
+         * Real production authentication.
+         *
+         * authApi.login() stores:
+         * - access token
+         * - student ID
+         * - session cookie
+         */
         await authApi.login(
           cleanIdentifier,
           password,
@@ -223,6 +233,16 @@ function LoginContent() {
           },
         );
 
+        /*
+         * Authentication is now definitely successful.
+         *
+         * Do NOT use router.replace() here.
+         *
+         * In the Android WebView, Next.js client-side navigation can remain
+         * on the current document when middleware/server navigation is
+         * involved. A real navigation guarantees that the newly-created
+         * sih26238_session cookie is sent to Next.js middleware.
+         */
         setPhase(
           "success",
         );
@@ -231,7 +251,11 @@ function LoginContent() {
           "Login successful. Opening your scholarship dashboard…",
         );
 
-        await new Promise(
+        /*
+         * Give the success state enough time to render visibly, then perform
+         * a full document navigation.
+         */
+        await new Promise<void>(
           (resolve) =>
             window.setTimeout(
               resolve,
@@ -239,9 +263,14 @@ function LoginContent() {
             ),
         );
 
-        router.replace(
+        /*
+         * Use an absolute same-origin path. This keeps the user inside the
+         * hosted Student App while forcing a complete request.
+         */
+        window.location.replace(
           "/dashboard",
         );
+
       } catch (
         err
       ) {
@@ -258,7 +287,13 @@ function LoginContent() {
             ? err.message
             : "Unable to sign in right now. Please try again.",
         );
+
       } finally {
+        /*
+         * Normally the page navigates after successful login.
+         * Setting this to false here keeps the UI consistent if navigation
+         * is delayed or interrupted.
+         */
         setIsLoading(
           false,
         );
@@ -334,6 +369,7 @@ function LoginContent() {
           <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3">
 
             <div className="flex items-center justify-between gap-2 mb-1">
+
               <div className="text-xs font-bold text-blue-900">
                 Demo Testing Account
               </div>
@@ -350,6 +386,7 @@ function LoginContent() {
               >
                 Use demo
               </button>
+
             </div>
 
             <p className="text-[11px] text-blue-800 leading-snug mb-2">
@@ -393,6 +430,7 @@ function LoginContent() {
               <div className="flex items-center gap-3">
 
                 <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white border border-slate-200">
+
                   {phase ===
                   "verifying" ? (
                     <ShieldCheck className="w-4 h-4 text-mota-700" />
@@ -401,6 +439,7 @@ function LoginContent() {
                   )}
 
                   <span className="absolute inset-0 rounded-xl border border-mota-700/10 animate-ping" />
+
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -427,6 +466,7 @@ function LoginContent() {
               </div>
 
               <div className="mt-3 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+
                 <div
                   className={[
                     "h-full rounded-full transition-all duration-700",
@@ -436,17 +476,23 @@ function LoginContent() {
                       : "w-1/2 bg-mota-700 animate-pulse",
                   ].join(" ")}
                 />
+
               </div>
 
               <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400">
+
                 <span className="flex items-center gap-1">
+
                   <ServerCog className="w-3 h-3" />
+
                   Scholarship service
+
                 </span>
 
                 <span>
                   Attempting secure connection
                 </span>
+
               </div>
 
             </div>
@@ -460,10 +506,13 @@ function LoginContent() {
                 <div className="flex items-center gap-2.5">
 
                   <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+
                     <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+
                   </div>
 
                   <div>
+
                     <p className="text-xs font-bold text-emerald-900">
                       Sign-in successful
                     </p>
@@ -471,6 +520,7 @@ function LoginContent() {
                     <p className="text-[11px] text-emerald-700">
                       Opening your dashboard…
                     </p>
+
                   </div>
 
                 </div>
@@ -486,7 +536,9 @@ function LoginContent() {
                 <div className="flex items-start gap-2.5">
 
                   <div className="mt-0.5 w-8 h-8 shrink-0 rounded-full bg-red-100 flex items-center justify-center">
+
                     <AlertCircle className="w-4 h-4 text-red-700" />
+
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -562,6 +614,7 @@ function LoginContent() {
                 isLoading
               }
             >
+
               <span>
                 {phase ===
                   "error" &&
@@ -577,6 +630,7 @@ function LoginContent() {
               ) : !isLoading ? (
                 <ArrowRight className="w-4 h-4" />
               ) : null}
+
             </Button>
 
           </form>
@@ -613,7 +667,9 @@ export default function LoginPage() {
           <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center">
 
             <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-mota-900 text-amber-400 flex items-center justify-center">
+
               <LoaderCircle className="w-5 h-5 animate-spin" />
+
             </div>
 
             <p className="text-sm font-bold text-slate-900">
