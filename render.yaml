@@ -10,10 +10,13 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+
       - key: NEXT_PUBLIC_USE_LIVE_BACKEND
         value: "true"
+
       - key: NEXT_PUBLIC_RIJVAN_API_URL
         value: "https://sih26238-operations-v25-free.onrender.com/api/v1"
+
       - key: NEXT_PUBLIC_VERIFICATION_API_URL
         value: "https://sih26238-verification-v25-free.onrender.com"
 
@@ -28,24 +31,15 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+
       - key: NODE_ENV
-        value: production
+        value: "production"
+
       - key: DEMO_MODE
         value: "false"
+
       - key: REAL_DATA_MODE
         value: "true"
-      - key: SCHOLARSHIP_AUTO_SYNC
-        value: "false"
-      - key: VERIFICATION_PROVIDER
-        value: "http"
-      - key: DOCUMENT_PROVIDER
-        value: "http"
-      - key: SCHOLARSHIP_DETAIL_CONCURRENCY
-        value: "2"
-      - key: SCHOLARSHIP_DB_CONCURRENCY
-        value: "2"
-      - key: SCHOLARSHIP_MAX_RESPONSE_BYTES
-        value: "8388608"
 
       - key: DATABASE_URL
         sync: false
@@ -93,7 +87,7 @@ services:
         value: "v1"
 
       - key: LOG_LEVEL
-        value: info
+        value: "info"
 
       - key: JWT_SECRET
         generateValue: true
@@ -108,13 +102,13 @@ services:
     healthCheckPath: /health
     envVars:
       - key: SIH_STORAGE_BACKEND
-        value: postgres
+        value: "postgres"
 
       - key: DATABASE_URL
         sync: false
 
       - key: SIH_DOCUMENT_STORAGE_BACKEND
-        value: supabase
+        value: "supabase"
 
       - key: SUPABASE_URL
         sync: false
@@ -123,7 +117,7 @@ services:
         sync: false
 
       - key: SUPABASE_STORAGE_BUCKET
-        value: sih26238-documents
+        value: "sih26238-documents"
 
       - key: SIH_REQUIRE_CONSENT
         value: "true"
