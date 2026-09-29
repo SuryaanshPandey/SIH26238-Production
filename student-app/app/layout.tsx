@@ -1,23 +1,60 @@
-import type { Metadata, Viewport } from "next";
+import type {
+  Metadata,
+  Viewport,
+} from "next";
+
 import "./globals.css";
-import { QueryProvider } from "../components/layout/QueryProvider";
-import { LanguageProvider } from "../lib/context/LanguageContext";
-import { MobileHeader } from "../components/layout/MobileHeader";
-import { MobileBottomNav } from "../components/layout/MobileBottomNav";
-import { JagoLauncher } from "../components/jago/JagoLauncher";
 
-export const metadata: Metadata = {
-  title: "SIH26238 | Unified Scholarship App",
-  description:
-    "SIH26238 unified scholarship application for tribal students",
-};
+import {
+  QueryProvider,
+} from "../components/layout/QueryProvider";
 
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-};
+import {
+  LanguageProvider,
+} from "../lib/context/LanguageContext";
+
+import {
+  MobileHeader,
+} from "../components/layout/MobileHeader";
+
+import {
+  MobileBottomNav,
+} from "../components/layout/MobileBottomNav";
+
+import {
+  JagoLauncher,
+} from "../components/jago/JagoLauncher";
+
+import {
+  PullToRefresh,
+} from "../components/layout/PullToRefresh";
+
+export const metadata: Metadata =
+  {
+    title:
+      "SIH26238 | Unified Scholarship App",
+
+    description:
+      "SIH26238 unified scholarship application for tribal students",
+  };
+
+export const viewport: Viewport =
+  {
+    width:
+      "device-width",
+
+    initialScale: 1,
+
+    maximumScale: 1,
+
+    userScalable: false,
+
+    viewportFit:
+      "cover",
+
+    themeColor:
+      "#f8fafc",
+  };
 
 export default function RootLayout({
   children,
@@ -26,14 +63,20 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-900 sm:py-4 flex justify-center items-start">
+      <body className="min-h-[100dvh] w-full overflow-hidden bg-slate-50 sm:bg-slate-100 flex justify-center">
         <LanguageProvider>
           <QueryProvider>
-            {/* Mobile shell container */}
-            <div className="w-full max-w-md min-h-screen sm:min-h-[850px] sm:max-h-[920px] bg-slate-50 flex flex-col shadow-2xl sm:rounded-[36px] sm:border-4 sm:border-slate-800 overflow-hidden relative pb-16">
+            <div className="relative flex h-[100dvh] w-full max-w-md flex-col overflow-hidden bg-slate-50 sm:h-auto sm:min-h-[850px] sm:max-h-[920px] sm:rounded-[28px] sm:border sm:border-slate-200 sm:shadow-xl">
               <MobileHeader />
-              <main className="flex-1 overflow-y-auto">{children}</main>
+
+              <PullToRefresh className="flex-1">
+                <main className="min-h-full pb-16">
+                  {children}
+                </main>
+              </PullToRefresh>
+
               <JagoLauncher />
+
               <MobileBottomNav />
             </div>
           </QueryProvider>
